@@ -59,8 +59,9 @@
 - [ ] Baseline runs unmodified where possible; record Desktop serve port.
 
 ### Phase 1 — colony live (view-only union)
-- [ ] Linux `launch()` patch (`xdg-open`, platform switch).
-- [ ] Hermes adapter (`~/.hermes/` session mapping).
+- [x] Linux `launch()` patch (`xdg-open`, platform switch) — done, upstream PR #2 open.
+- [x] Hermes adapter (session mapping) — live, 131 threads (cron skipped), read-only + archive flag.
+- [x] Deploy prod build on Linux host — systemd `bot-crossing.service`, verified `:5274`.
 - [ ] OpenCode adapter (HTTP client → Desktop/serve API over LAN; fallback:
       copy-then-query `opencode.db`, never live-query over network/WAL).
 - [ ] Codex adapter (`rollout-*.jsonl` parser + thin `GET /threads` shim on WinPC).
@@ -73,9 +74,13 @@
       lighting; ambient-only; decide later whether <30% battery earns a badge).
 - [ ] Remote-open listener on WinPC (authenticated, LAN).
 - [ ] Antigravity adapter (needs session-path discovery first).
+- [ ] Hermes adapter v2 — astronauts are the actual bots (profiles: main/coder/
+      researcher/…) shown on the projects they work on, not one astronaut per
+      session. Needs renderer (`src/`) changes, so fork-only. Design first:
+      single astronaut walking between session plots vs one-per-profile.
 
 ### Upstream PRs (courtesy, never gating)
-- [ ] Linux `launch()` → upstream. [ ] OpenCode adapter → upstream.
+- [x] Linux `launch()` → upstream (PR #2 open 04 Sep 2026). [ ] OpenCode adapter → upstream.
 - [ ] Codex adapter → upstream. (Keep remote-colony + solar in fork only.)
 
 ## Harnesses / agents in scope (refer to these)
