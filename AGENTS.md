@@ -2,15 +2,13 @@
 
 ## Environment
 
-- **WinPC** (WinPC, `user@winpc-lan` LAN-first / `winpc-tailscale` Tailscale fallback,
-  always on, same LAN as Hermes host). All work repos in `<projects-folder>\`.
-  SSH over Tailscale verified working; LAN SSH verified working (flaked once).
-  Shell is `cmd` (no `head`/`tail` — use `findstr`; PowerShell via `powershell
-  -NoProfile -Command`). `bridge_lib`-style files may be CRLF — patch with
+- **Windows PC** (always on, same LAN as the Linux host). All work repos in one
+  projects folder. Shell is `cmd` (no `head`/`tail` — use `findstr`; PowerShell
+  via `powershell -NoProfile -Command`). Some files may be CRLF — patch with
   CRLF-aware replacement, never fuzzy-indent. scp pulls need forward slashes.
-- **Hermes host** (Linux, colony server home). Node v22 present. RAM tight
-  (1.5 GB avail, swap 75% used) → production build only. Disk fine (69 GB free).
-- **Home Assistant** (`home-assistant-tailscale` tailnet, online) — solar tile data source.
+- **Linux host** (colony server home). Node v22 present. RAM tight → production
+  build only.
+- **Home Assistant** — solar tile data source (REST, ~60s poll).
 
 ## Upstream facts (verified Sep 2026, static review only — never cloned)
 
@@ -37,9 +35,9 @@
   0 session rows; schema is what matters.)
 - OpenCode Desktop was NOT running during probe (no process, no 4096 listener);
   its serve port is still unmapped — map via `netstat`+`tasklist` next time it
-  is open, then test `GET /health`-style endpoint from Hermes host over LAN.
+  is open, then test `GET /health`-style endpoint from the Linux host over LAN.
 - `codex.exe` runs with no listening socket → file-based adapter only.
-- Neither `~/.gemini` nor `~/.antigravity` exists on Hermes host.
+- Neither `~/.gemini` nor `~/.antigravity` exists on the Linux host.
 
 ## Build rules for this fork
 
@@ -55,9 +53,9 @@
 
 ## TODO
 
-### Phase 0 — scaffolding (needs Kiran: GitHub fork = remote, ask first)
-- [ ] Fork `jarrenrocks/bot-crossing` on GitHub; clone (decide home: WinPC
-      `<projects-folder>\Bot Crossing Colony\` vs Hermes host).
+### Phase 0 — scaffolding
+- [x] Fork `jarrenrocks/bot-crossing` on GitHub (done 04 Sep 2026); clone home:
+      Windows project folder.
 - [ ] Baseline runs unmodified where possible; record Desktop serve port.
 
 ### Phase 1 — colony live (view-only union)
@@ -67,13 +65,13 @@
       copy-then-query `opencode.db`, never live-query over network/WAL).
 - [ ] Codex adapter (`rollout-*.jsonl` parser + thin `GET /threads` shim on WinPC).
 - [ ] Remote-reader adapters + `host:harness` id prefix + stale/last-seen UI.
-- [ ] Deploy prod build on Hermes host; verify from phone + PC browsers.
+- [ ] Deploy prod build on Linux host; verify from phone + PC browsers.
 - [ ] Windows Firewall inbound rule for serve/shim ports.
 
 ### Phase 2 — signature + actions
-- [ ] Solar tile (HA REST poller → drive day/night engine + panel glow + night
+- [ ] Solar tile (Home Assistant REST poller → drive day/night engine + panel glow + night
       lighting; ambient-only; decide later whether <30% battery earns a badge).
-- [ ] Remote-open listener on WinPC (authenticated, Tailscale-or-LAN).
+- [ ] Remote-open listener on WinPC (authenticated, LAN).
 - [ ] Antigravity adapter (needs session-path discovery first).
 
 ### Upstream PRs (courtesy, never gating)
@@ -86,7 +84,7 @@
 |---|---|---|---|
 | OpenCode Desktop | WinPC | Native `opencode serve` OpenAPI over LAN | https://opencode.ai/docs/server/ |
 | Codex CLI | WinPC | File parse (`~/.codex/sessions/`) + pull shim | repo `server/harnesses/README.md` §starting-points |
-| Hermes Agent | Hermes host | Local adapter, `~/.hermes/` | `hermes-agent` skill / dashboard |
+| Hermes Agent | Linux host | Local adapter, session mapping | `hermes-agent` skill / dashboard |
 | Antigravity | WinPC | Undiscovered — map first | `find ~ -newermt` trick |
 | Upstream project | — | `jarrenrocks/bot-crossing` (MIT, as-is) | https://github.com/jarrenrocks/bot-crossing |
 

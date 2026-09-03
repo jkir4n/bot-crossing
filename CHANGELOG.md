@@ -7,7 +7,7 @@
 - Static review of upstream `jarrenrocks/bot-crossing` (57★, 4 commits): adapter
   contract, `claude://` deep-link mechanism, day/night engine, UI restraint rules.
 - Verified live: OpenCode SQLite session schema; Desktop not running (port
-  unmapped); `codex.exe` socket-less (file-based only); Hermes host resources OK
+  unmapped); `codex.exe` socket-less (file-based only); Linux host resources OK
   for prod build; LAN-first networking; WinPC SSH working.
 - Decisions locked: fork-first + PR separable slices; LAN-first, no Tailscale
   dependency; host-prefixed ids; stale-not-error for offline PC; solar tile as
