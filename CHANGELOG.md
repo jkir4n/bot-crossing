@@ -29,3 +29,17 @@
 - Removed machine names, IPs, usernames, drive paths from README / CHANGELOG
   (AGENTS.md environment section also done; rest pending approval).
   Real connection values live in operator memory, not the repo.
+
+## 2026-09-04 — Linux port runs (branch `linux-port`, commit 02b5ccf)
+
+- Ported upstream `launch()` to Linux (`xdg-open`, null-safe elsewhere) with
+  spawn-error guard; `os` field allows linux; `BOT_CROSSING_HOST` env for
+  LAN serving (default still loopback); Host/Origin check accepts the
+  machine's own LAN addresses (rebinding/CSRF model intact).
+- Lockfile fix found on the way: upstream package-lock still said
+  `cosmo-builder` (pre-rename); synced + os field.
+- Production build + serve VERIFIED on Linux host: `/` 200, `/api/threads`
+  200 (empty — no harness sessions here yet), LAN path 200.
+  Colony live at `http://<linux-host-lan>:5274` (empty world until the
+  Hermes adapter lands).
+- Next: Hermes adapter (Phase 1), then push branch + open upstream PR.
