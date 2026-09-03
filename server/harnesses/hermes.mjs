@@ -75,7 +75,9 @@ async function scanThreads() {
                WHERE m.session_id = s.id AND m.role = 'user' AND m.active = 1
                ORDER BY m.id ASC LIMIT 1) AS first_user
         FROM sessions s
-       WHERE s.hidden = 0
+       -- Cron executions are scheduled runs, not threads: each one would
+       -- stand on the map as an astronaut nobody ever talks to. Skip them.
+       WHERE s.hidden = 0 AND s.source != 'cron'
        ORDER BY COALESCE(s.last_activity_at, s.ended_at, s.started_at) DESC
     `).all()
     return rows.map(toThread)
