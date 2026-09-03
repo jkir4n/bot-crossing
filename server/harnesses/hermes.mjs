@@ -22,7 +22,14 @@ const openRead = () => new DatabaseSync(DB, { readOnly: true })
 
 function toThread(row) {
   const root = row.git_repo_root || row.cwd || ''
-  const project = root ? path.basename(root) : 'Hermes'
+  // Sessions run from the agent home (or with no cwd) are all the same
+  // project — don't let basename case/dirname split one bot into many.
+  const home = process.env.HOME || '/home/hermes'
+  const isHome = !root || root === home || root === home + '/.hermes'
+  const project = isHome ? 'Hermes' : path.basename(root)
+  // Keep projectPath canonical too: the colony keys plots on (name, path),
+  // so three spellings of home would be re-split into three plots downstream.
+  const projectPath = isHome ? home : root
   const createdAt = Math.round((row.started_at || 0) * 1000)
   const lastActivityAt = Math.round(((row.last_activity_at || row.ended_at || row.started_at) || 0) * 1000)
   const tokens = (row.input_tokens || 0) + (row.output_tokens || 0)
@@ -31,7 +38,7 @@ function toThread(row) {
     title: row.title || 'Untitled thread',
     preview: (row.first_user || '').trim().slice(0, 280),
     project,
-    projectPath: root,
+    projectPath,
     worktree: '',
     cwd: row.cwd || '',
     gitBranch: row.git_branch || '',
