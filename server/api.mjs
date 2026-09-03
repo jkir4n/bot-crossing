@@ -80,22 +80,34 @@ async function writeState(next) {
 }
 
 /**
- * Hand a `harness://…` deep link (or a folder path for reveal) to the OS.
- * The launcher gets an argument list, never a shell string. macOS uses
- * `open(1)`, Linux uses `xdg-open`. A missing launcher — a headless box has
- * no `xdg-open` — fails silently: there is nothing the page could do with
- * the error, and the scan path must never depend on presentation.
+/**
+ * Hand a `harness://…` deep link, or a folder, to whatever opens things on this OS. The
+ * opener gets an argument list, never a shell string.
+ *
+ * macOS's `open(1)` does both jobs, and `xdg-open` is the Linux equivalent. On Windows the
+ * equivalent is ShellExecute, reached through `rundll32 url.dll,FileProtocolHandler`: a
+ * registered protocol URL goes to its app and a folder opens in Explorer, with the argument
+ * passed through untouched. Two more obvious routes were tried and rejected — `explorer.exe
+ * <url>` silently drops any URL that carries a query string, so `code/new?folder=…` never
+ * arrived, and `cmd /c start` parses its own argument line, where the `%3A%5C` escapes in that
+ * same link are exactly what it expands.
+ *
+ * The spawn is guarded because the opener may simply not be installed — a headless Linux box
+ * has no `xdg-open` — and an unhandled `error` event on a child process takes the whole server
+ * down. Failing quietly is right here: there is nothing the page could do with the error, and
+ * the scan path must never depend on whether presentation worked.
  */
-function opener() {
-  if (process.platform === 'darwin') return 'open'
-  if (process.platform === 'linux') return 'xdg-open'
-  return null
+const OPENERS = {
+  darwin: ['open'],
+  win32: ['rundll32', 'url.dll,FileProtocolHandler'],
+  linux: ['xdg-open'],
 }
 
-function launch(url) {
-  const cmd = opener()
-  if (!cmd) return
-  const child = spawn(cmd, [url], { stdio: 'ignore', detached: true })
+function launch(target) {
+  const opener = OPENERS[process.platform]
+  if (!opener) return
+  const [cmd, ...args] = opener
+  const child = spawn(cmd, [...args, target], { stdio: 'ignore', detached: true })
   child.on('error', () => {})
   child.unref()
 }
@@ -103,10 +115,11 @@ function launch(url) {
 /**
  * A folder is openable only if it is still on this machine and still a directory. Paths
  * arrive from the page, which got them from a scan that may be minutes old — a repo that
- * has since been moved or deleted must fail here rather than hand `open` a dead path.
+ * has since been moved or deleted must fail here rather than hand the opener a dead path.
+ * Absolute is judged by `path.isAbsolute` rather than a leading `/`, which no Windows path has.
  */
 async function resolveFolder(folder) {
-  if (typeof folder !== 'string' || !folder.startsWith('/')) return null
+  if (typeof folder !== 'string' || !path.isAbsolute(folder)) return null
   const dir = path.resolve(folder)
   const stat = await fsp.stat(dir).catch(() => null)
   return stat && stat.isDirectory() ? dir : null

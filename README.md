@@ -24,9 +24,11 @@ second process. For a built version, `npm start` (build + serve) or `npm run ser
 `dist/` already exists. Binds to `127.0.0.1` by default, and answers only its own page — see
 [Keeping it local](#keeping-it-local).
 
-**macOS and Linux.** Opening a thread, revealing a folder and starting a new session go through
-a `harness://` deep link handed to `open(1)` on macOS and `xdg-open` on Linux. Windows has no
-opener yet; the scanning half is portable, so it is the smaller half of the job.
+**macOS, Linux and Windows.** Opening a thread, revealing a folder and starting a new session
+all go through a `harness://` deep link handed to the OS opener — `open(1)` on macOS,
+`xdg-open` on Linux, ShellExecute on Windows. The scanning half was portable already. Note that
+the deep link needs a desktop app registered for that scheme, so on Linux the folder buttons
+work while opening a thread has nothing to reach yet.
 
 ## Which harnesses work
 
@@ -177,7 +179,7 @@ into the same repo. Picking somebody is also picking the zone they are standing 
   `claude://code/new?folder=…` deep link Finder's "New Claude Code Session Here" quick
   action uses, so the desktop app opens an empty session with the repo as its workspace —
   nothing is resumed and nothing is written.
-- **Finder** opens the folder, **Copy path** copies it.
+- **Finder** (Explorer on Windows) opens the folder, **Copy path** copies it.
 - Underneath, everything running in that repo, whoever wants something first. Clicking one
   flies to its astronaut and selects it.
 
