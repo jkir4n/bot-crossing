@@ -276,6 +276,32 @@ export class Colony {
     this._syncPlots(projects)
 
     const roster = []
+    // Fork: one astronaut per bot, not per session. Threads carrying a `pilot`
+    // (Hermes profiles) fold into a single roster entry per pilot, standing at
+    // the pilot's most pressing thread — running first, then needy, then
+    // recent. Buildings below still rise per thread: plots show sessions,
+    // astronauts show bots.
+    const pilots = new Map()
+    const pushRoster = (entry) => {
+      const pilot = entry.thread.pilot
+      if (!pilot) {
+        roster.push(entry)
+        return
+      }
+      const key = `pilot:${entry.thread.harness || ''}:${pilot}`
+      const score =
+        (entry.thread.running ? 4 : 0) +
+        (entry.status === 'waiting' || entry.status === 'blocked' ? 2 : 0)
+      const prev = pilots.get(key)
+      if (
+        !prev ||
+        score > prev.score ||
+        (score === prev.score &&
+          (entry.thread.lastActivityAt || 0) > (prev.entry.thread.lastActivityAt || 0))
+      ) {
+        pilots.set(key, { score, entry: { ...entry, id: key } })
+      }
+    }
     const seenBuildings = new Set()
     const stats = { agents: 0, projects: projects.length }
     for (const key of STATUS_ORDER) stats[key] = 0
@@ -297,12 +323,11 @@ export class Colony {
         if (stats[status] !== undefined) stats[status]++
         if (status === 'waiting' || status === 'blocked') urgent.add(plot.id)
         if (status === 'waiting' || status === 'blocked' || status === 'working') active.add(plot.id)
-        stats.agents++
 
         const building = this._syncBuilding(thread, plot, i)
         seenBuildings.add(thread.id)
 
-        roster.push({
+        pushRoster({
           id: thread.id,
           thread,
           status,
@@ -313,6 +338,11 @@ export class Colony {
         })
       })
     }
+
+    // Pilots walk the map as themselves: their entries lead so a bot is never
+    // squeezed out of a crowded sky by its own sessions.
+    for (const { entry } of pilots.values()) roster.unshift(entry)
+    stats.agents = roster.length
 
     // Anything that dropped out of the scan — archived, or a transcript that vanished —
     // takes its building down and walks its astronaut back to the ship.

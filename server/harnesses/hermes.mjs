@@ -13,14 +13,40 @@
  * Hermes's archived list rather than only disappearing here.
  */
 import { DatabaseSync } from 'node:sqlite'
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const DB = path.join(os.homedir(), '.hermes', 'state.db')
+const HOME = process.env.HOME || '/home/hermes'
+const MAIN_DB = path.join(HOME, '.hermes', 'state.db')
+const PROFILES_DIR = path.join(HOME, '.hermes', 'profiles')
 
-const openRead = () => new DatabaseSync(DB, { readOnly: true })
+/** Every bot that owns sessions: the default profile plus each named profile
+ *  with its own session store. Pilot name doubles as the astronaut's identity. */
+function pilotDBs() {
+  const dbs = [{ pilot: 'main', file: MAIN_DB }]
+  let dirs = []
+  try {
+    dirs = fs.readdirSync(PROFILES_DIR, { withFileTypes: true })
+  } catch {
+    return dbs
+  }
+  for (const d of dirs) {
+    if (!d.isDirectory()) continue
+    const file = path.join(PROFILES_DIR, d.name, 'state.db')
+    try {
+      fs.accessSync(file, fs.constants.R_OK)
+      dbs.push({ pilot: d.name, file })
+    } catch {
+      /* profile never ran — no astronaut until it has sessions */
+    }
+  }
+  return dbs
+}
 
-function toThread(row) {
+const openRead = (file) => new DatabaseSync(file, { readOnly: true })
+
+function toThread(row, pilot) {
   const root = row.git_repo_root || row.cwd || ''
   // Sessions run from the agent home (or with no cwd) are all the same
   // project — don't let basename case/dirname split one bot into many.
@@ -34,7 +60,8 @@ function toThread(row) {
   const lastActivityAt = Math.round(((row.last_activity_at || row.ended_at || row.started_at) || 0) * 1000)
   const tokens = (row.input_tokens || 0) + (row.output_tokens || 0)
   return {
-    id: `hermes:${row.id}`,
+    id: `hermes:${pilot}:${row.id}`,
+    pilot,
     title: row.title || 'Untitled thread',
     preview: (row.first_user || '').trim().slice(0, 280),
     project,
@@ -57,23 +84,20 @@ function toThread(row) {
     source: row.source || '',
     canOpen: false,
     canArchive: true,
-    ref: { sessionId: row.id },
+    ref: { sessionId: row.id, pilot },
   }
 }
 
 async function detect() {
   try {
-    openRead().close()
+    openRead(MAIN_DB).close()
     return true
   } catch {
     return false
   }
 }
 
-async function scanThreads() {
-  const db = openRead()
-  try {
-    const rows = db.prepare(`
+const THREAD_SQL = `
       SELECT s.id, s.title, s.model, s.source, s.cwd, s.git_branch, s.git_repo_root,
              s.started_at, s.ended_at, s.message_count,
              s.input_tokens, s.output_tokens, s.archived,
@@ -86,11 +110,24 @@ async function scanThreads() {
        -- stand on the map as an astronaut nobody ever talks to. Skip them.
        WHERE s.hidden = 0 AND s.source != 'cron'
        ORDER BY COALESCE(s.last_activity_at, s.ended_at, s.started_at) DESC
-    `).all()
-    return rows.map(toThread)
-  } finally {
-    db.close()
+`
+
+async function scanThreads() {
+  const out = []
+  for (const { pilot, file } of pilotDBs()) {
+    let db
+    try {
+      db = openRead(file)
+    } catch {
+      continue
+    }
+    try {
+      for (const row of db.prepare(THREAD_SQL).all()) out.push(toThread(row, pilot))
+    } finally {
+      db.close()
+    }
   }
+  return out
 }
 
 function openThread() {
@@ -104,8 +141,11 @@ function newSession() {
 async function setArchived(ref, archived) {
   const sessionId = ref && ref.sessionId
   if (!sessionId) return { ok: false, error: 'Missing thread ref' }
+  const pilot = (ref && ref.pilot) || 'main'
+  const found = pilotDBs().find((d) => d.pilot === pilot)
+  if (!found) return { ok: false, error: 'No such pilot in the Hermes store' }
   try {
-    const db = new DatabaseSync(DB)
+    const db = new DatabaseSync(found.file)
     try {
       const info = db.prepare('UPDATE sessions SET archived = ? WHERE id = ?')
         .run(archived ? 1 : 0, sessionId)
