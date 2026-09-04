@@ -39,8 +39,9 @@ somebody writing that adapter.
 | Harness | Status |
 | --- | --- |
 | **[Claude Code](https://claude.com/claude-code)** (Anthropic) | ✅ **Supported** — desktop app and CLI, including worktrees, live-process detection and archiving |
+| **Hermes Agent** | ✅ **Supported in this fork** — local session store, one astronaut per bot profile (see below) |
 | [Codex CLI](https://developers.openai.com/codex/cli) (OpenAI) | ⬜ Not yet — transcripts found at `~/.codex/sessions/`, [notes here](server/harnesses/README.md#starting-points) |
-| [OpenCode](https://opencode.ai) | ⬜ Not yet |
+| [OpenCode](https://opencode.ai) | ✅ **Supported in this fork** — serve liveness over a snapshot-primary full history (see below) |
 | [Antigravity CLI](https://antigravity.google) (Google) | ⬜ Not yet — the successor to Gemini CLI, which Google stopped serving individual accounts on 18 June 2026 |
 | [Cursor](https://cursor.com) (`cursor-agent`) | ⬜ Not yet |
 | [Amp](https://ampcode.com) (Sourcegraph) | ⬜ Not yet |
@@ -692,23 +693,99 @@ Every agent thread on every machine is an astronaut. One hex zone per project
 folder. Multiple harnesses (Hermes, OpenCode, Codex, Antigravity) show up as one
 union colony, served from an always-on home server, viewable from any browser.
 
-### Architecture (decided 04 Sep 2026)
+### Architecture (built 04 Sep 2026)
 
 - **Colony server on a Linux host** (production `npm start` build — small
-  footprint, no dev server for 24/7).
-- **OpenCode Desktop (Windows PC)** → native serve API polled over the home LAN.
-  No exporter needed. If Desktop binds localhost-only → bind setting, firewall
-  rule, or `ssh -L`. No cloud dependency.
-- **Codex CLI (Windows PC)** → file-based, no listener. Adapter parses
-  `~/.codex/sessions/…/rollout-*.jsonl` via a thin read-only pull shim
-  (`GET /threads`) on the PC.
-- **Hermes agent (Linux host)** → local adapter reading its session store.
-- **Antigravity** → session paths undiscovered; needs `find ~ -newermt` mapping on
-  a machine with it installed. Last in line.
-- **Remote-open (Phase 2):** tiny authenticated listener on the Windows PC; Phase 1 greys
-  out open for remote threads (interface supports it natively).
-- **IDs are host-prefixed** (`winpc:opencode:<id>`) so machines never merge threads.
-- **Offline PC reads as stale** (last-seen age), never as error.
+  footprint, no dev server for 24/7). Viewable from any browser on the home
+  network via `BOT_CROSSING_HOST=0.0.0.0 npm start` (same caveats as
+  [Serving it to your network](#serving-it-to-your-network)).
+- **Hermes agent (same host)** → `server/harnesses/hermes.mjs` reads the local
+  session store read-only, one SQL pass per scan (fast enough that no mtime
+  cache is needed). One astronaut per bot: the default profile plus every named
+  profile with its own session store shows up as its own pilot. Scheduled runs
+  are skipped — each one would stand on the map as an astronaut nobody ever
+  talks to. Archiving flips the harness's own archive flag; open/new-session
+  have no deep link to hand back and grey out per the interface.
+- **OpenCode Desktop (second machine)** → `server/harnesses/opencode.mjs`:
+  serve-first liveness over a snapshot-primary full history. How it works and
+  how to set it up is below.
+- **Codex CLI (second machine)** → not yet: file-based parse of
+  `~/.codex/sessions/…/rollout-*.jsonl` via a thin read-only pull shim on that
+  machine, per `server/harnesses/README.md` §starting-points.
+- **Antigravity** → session paths still undiscovered; needs mapping on a machine
+  with it installed. Last in line.
+- **Remote-open (Phase 2):** tiny authenticated listener on the second machine;
+  Phase 1 greys out open for remote threads (the interface supports it natively).
+- **IDs are harness-prefixed** (`hermes:<pilot>:<id>`, `opencode:<session-id>`)
+  so harnesses never merge threads.
+- **An unreachable machine reads as absent, never as error** — the scan and the
+  other harnesses are never affected.
+
+### OpenCode link: what it does
+
+Three sources, merged on every scan. The full history is the point: the serve
+API only shows the sessions loaded in the *running* Desktop instance, while the
+real history lives in the session store on the other machine.
+
+1. **Remote session-store snapshot (primary).** The colony pulls a copy of the
+   store (`opencode.db`, SQLite) over SSH into a persistent local cache and
+   queries the copy — never the live file (a copy never locks Desktop's files,
+   and live-querying over a network share risks WAL trouble). The pull is
+   mtime-gated: a cheap remote stat runs at most once per
+   `OPENCODE_DB_STAT_TTL_SECONDS` window, and the bulk copy runs in the
+   background only when the remote signature actually changed, at most once per
+   `OPENCODE_DB_PULL_MIN_SECONDS`, so a scan never blocks on a transfer. While
+   Desktop runs, its `-wal` carries the newest writes, so db **and** wal are
+   pulled and verified-then-swapped as a pair (`-shm` is deliberately never
+   copied — shared memory is rebuilt on open, a live copy is meaningless); a
+   mid-pull Desktop write or a failed verify discards the set and the previous
+   snapshot keeps serving. Snapshot-backed threads are archive-view-only:
+   writing a remote store file from here would race Desktop, which rewrites its
+   records from memory.
+2. **Serve HTTP API (live overlay).** `GET /session`, `/session/status`,
+   `/project`, plus capped message previews. Serve threads merge *into* the
+   snapshot list by session id: serve fills in live running flags and fields
+   the snapshot lacks, and sessions too new to have pulled yet appear
+   serve-backed until the next snapshot refresh absorbs them.
+3. **Local store copy (union member).** Same copy-then-query mechanics for a
+   store on the colony host itself (`OPENCODE_DB_PATH`, else the host default)
+   — so the host's own sessions still show alongside the remote history.
+
+What to expect: the snapshot shows **every** session in the store (full
+history, dozens across all projects); serve adds liveness (which threads are
+running *now*) for the handful of sessions the running Desktop instance has
+loaded. A thread opens only if it has a `share_url` — there is no Desktop deep
+link to hand back, so unshared threads grey out with a reason per the interface.
+
+### OpenCode link: setup
+
+Desktop's serve API binds loopback-only on a random port with an autogenerated
+password — both rotate every launch — so the colony reaches it through a
+read-only SSH tunnel that resolves fresh credentials on every run without ever
+disrupting Desktop (no restarts, no config or firewall changes on that side).
+
+- `scripts/opencode-tunnel.sh -- <command>` — one-shot: resolves the current
+  port + credentials over SSH and exports `OPENCODE_SERVE_URL` (plus
+  `OPENCODE_SERVE_USERNAME` / `OPENCODE_SERVE_PASSWORD`) for the command.
+- `scripts/opencode-keeper.sh` — persistent version for 24/7: holds `ssh -L`
+  open, re-resolves and re-establishes by itself across Desktop restarts, and
+  publishes the same three values to a `0600` creds file the adapter reads on
+  every scan (explicit env always wins; a stale file reads as unconfigured).
+  When the remote side is unreachable it removes the file so the adapter
+  cleanly degrades to zero OpenCode threads.
+- Install: copy
+  `scripts/systemd/bot-crossing-opencode-keeper.service.example` to the
+  operator's user systemd unit directory, set the real target there, enable +
+  start. Real connection values live in the operator's environment — never in
+  the repo.
+- Env names (values stay local): `OPENCODE_SSH_TARGET` (required — keeper and
+  tunnel target; the snapshot pull takes `OPENCODE_DB_SSH_TARGET` and falls
+  back to it), `OPENCODE_DB_REMOTE_PATH`, `OPENCODE_SNAPSHOT_DIR`,
+  `OPENCODE_SERVE_URL` (or `OPENCODE_SERVE_HOST` / `OPENCODE_SERVE_PORT`, plus
+  optional `OPENCODE_SERVE_USERNAME` / `OPENCODE_SERVE_PASSWORD`),
+  `OPENCODE_SERVE_CREDS_FILE`, `OPENCODE_LOCAL_PORT`, `OPENCODE_KEEPER_INTERVAL`,
+  `OPENCODE_DB_STAT_TTL_SECONDS`, `OPENCODE_DB_PULL_MIN_SECONDS`,
+  `OPENCODE_DB_PATH`.
 
 ### Signature feature (Phase 2): solar tile
 
@@ -725,5 +802,9 @@ Author publishes as-is, PRs may go unanswered — never gate progress on review.
 
 ### Status
 
-Docs + plan only (04 Sep 2026). No code yet. See `AGENTS.md` for the
-build contract and phased TODO.
+Live 04 Sep 2026: Linux port + Hermes adapter (pilot-grouped, one astronaut per
+bot) + OpenCode adapter (snapshot-primary full history, WAL-complete pulls,
+keeper-held tunnel) all serving in the production colony — `/api/threads`
+shows the Hermes roster plus the full OpenCode history. Remaining: Codex
+adapter, Antigravity mapping, remote-open listener, solar tile. See `AGENTS.md`
+for the phased TODO.
