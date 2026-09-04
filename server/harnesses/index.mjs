@@ -9,8 +9,9 @@
 import claudeCode from './claude-code.mjs'
 import hermes from './hermes.mjs'
 import opencode from './opencode.mjs'
+import antigravity from './antigravity.mjs'
 
-export const HARNESSES = [claudeCode, hermes, opencode]
+export const HARNESSES = [claudeCode, hermes, opencode, antigravity]
 
 export const harnessById = (id) => HARNESSES.find((h) => h.id === id) || null
 
