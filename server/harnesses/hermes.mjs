@@ -17,9 +17,35 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const HOME = process.env.HOME || '/home/hermes'
-const MAIN_DB = path.join(HOME, '.hermes', 'state.db')
-const PROFILES_DIR = path.join(HOME, '.hermes', 'profiles')
+const HOME = os.homedir()
+
+/**
+ * Where Hermes keeps its session store. HERMES_HOME wins everywhere; otherwise
+ * a platform default — `~/.hermes` on POSIX (macOS matches Linux, no Darwin
+ * special-case upstream) vs `%LOCALAPPDATA%\hermes` on native Windows. On
+ * Windows an older `%USERPROFILE%\.hermes` layout still counts when it holds
+ * the store; WSL2 follows the Linux layout.
+ *
+ * Pure and injectable so the matrix can be unit-tested without a Mac or
+ * Windows box: platform/env/home/exists default to the live process values,
+ * so the no-arg call IS the production probe.
+ */
+export function resolveHermesHome({ platform = process.platform, env = process.env, home = HOME, exists = fs.existsSync } = {}) {
+  if (env.HERMES_HOME) return env.HERMES_HOME
+  if (platform !== 'win32') return path.join(home, '.hermes')
+  const modern = path.join(
+    env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'),
+    'hermes'
+  )
+  const legacy = path.join(home, '.hermes')
+  if (!exists(path.join(modern, 'state.db')) && exists(path.join(legacy, 'state.db'))) {
+    return legacy
+  }
+  return modern
+}
+const HERMES_HOME = resolveHermesHome()
+const MAIN_DB = path.join(HERMES_HOME, 'state.db')
+const PROFILES_DIR = path.join(HERMES_HOME, 'profiles')
 
 /** Every bot that owns sessions: the default profile plus each named profile
  *  with its own session store. Pilot name doubles as the astronaut's identity. */
@@ -50,7 +76,7 @@ function toThread(row, pilot) {
   const root = row.git_repo_root || row.cwd || ''
   // Sessions run from the agent home (or with no cwd) are all the same
   // project — don't let basename case/dirname split one bot into many.
-  const home = process.env.HOME || '/home/hermes'
+  const home = HOME
   const isHome = !root || root === home || root === home + '/.hermes'
   const project = isHome ? 'Hermes' : path.basename(root)
   // Keep projectPath canonical too: the colony keys plots on (name, path),
