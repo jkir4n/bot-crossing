@@ -49,6 +49,9 @@
  *
  * Annotation-only uuids (no db/brain — deleted or remote sessions) appear as
  * title+lastViewed rows with source 'annotation-only', never an error.
+ * Summary-index-only uuids (no db, brain, or annotation anywhere) are
+ * SKIPPED: the index retains entries for deleted conversations, and without
+ * any backing file they are not threads worth showing.
  *
  * GAPS (labeled, not papered over): unread is always false (read.json
  * comparison not wired); hasError is always false (would need transcript
@@ -497,6 +500,8 @@ async function transcriptHead(home, uuid) {
  * db itself is never opened, its payloads are descriptor-less protobuf),
  * annotation, summary entry, transcript head. One bad file never fails the
  * pass; annotation-only uuids (no db/brain) are first-class records.
+ * Summary-index-only uuids (no db, brain dir, or annotation) are deleted
+ * conversations the index retained — pruned, never threads.
  */
 async function readLocal(home) {
   const records = new Map()
@@ -549,6 +554,12 @@ async function readLocal(home) {
   for (const uuid of records.keys()) {
     const head = await transcriptHead(home, uuid)
     if (head) records.get(uuid).tx = head
+  }
+  // The summary index retains entries for deleted conversations: a uuid with
+  // no backing source (no db, no brain transcript, no annotation) is not a
+  // thread — prune it so index-only ghosts never reach the colony.
+  for (const [uuid, rec] of [...records]) {
+    if (!rec.dbSize && !rec.ann && !rec.tx) records.delete(uuid)
   }
   return records
 }
@@ -748,6 +759,11 @@ function manifestRecords(manifest) {
     } catch {
       /* skip that head */
     }
+  }
+  // Same prune as readLocal: summary-index-only uuids are deleted
+  // conversations the index retained — no db, brain, or annotation anywhere.
+  for (const [uuid, rec] of [...records]) {
+    if (!rec.dbSize && !rec.ann && !rec.tx) records.delete(uuid)
   }
   return records
 }
