@@ -7,8 +7,6 @@
  */
 
 const STORE_KEY = 'botcrossing.settings.v1'
-/** Pre-rename key. Read once so an existing colony keeps the settings it was tuned to. */
-const LEGACY_STORE_KEY = 'cosmo.settings.v1'
 
 /**
  * What a fresh install opens on. Fixed rather than guessed from the device: `autoQuality`
@@ -254,18 +252,7 @@ export class Settings {
 
 function load() {
   try {
-    // Fall back to the pre-rename key, and move it across so this only happens once. A
-    // rename should not quietly reset settings somebody deliberately tuned.
-    let stored = localStorage.getItem(STORE_KEY)
-    if (stored === null) {
-      const legacy = localStorage.getItem(LEGACY_STORE_KEY)
-      if (legacy !== null) {
-        stored = legacy
-        localStorage.setItem(STORE_KEY, legacy)
-        localStorage.removeItem(LEGACY_STORE_KEY)
-      }
-    }
-    const raw = JSON.parse(stored || '{}')
+    const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '{}')
     return raw && typeof raw === 'object' ? raw : {}
   } catch {
     return {}
@@ -274,7 +261,7 @@ function load() {
 
 export function hasStoredSettings() {
   try {
-    return Boolean(localStorage.getItem(STORE_KEY) || localStorage.getItem(LEGACY_STORE_KEY))
+    return Boolean(localStorage.getItem(STORE_KEY))
   } catch {
     return false
   }
