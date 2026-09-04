@@ -1,17 +1,19 @@
 # Bot Crossing — your agent threads, as a colony
 
+> **Fork note:** this is a personal fork of [jarrenrocks/bot-crossing](https://github.com/jarrenrocks/bot-crossing), kept close to upstream. It adds Linux server support, Hermes and OpenCode harness adapters, and a remote-machine design that reads sessions from other machines as well as the server's own. Upstream-authored passages that spoke in the first person are attributed to the upstream author.
+
 **[botcrossing.com](https://botcrossing.com)**
 
-Every coding-agent thread on this Mac is a little astronaut. They walk out of the ship, claim
+Every coding-agent thread on your machines — local and remote — is a little astronaut. They walk out of the ship, claim
 a plot for their repo, and build something. When one needs you it stops and holds a `?` over
 its head; click it and the thread opens back in whichever harness it came from.
 
-It reads the harness's own files, on your own machine. Nothing is uploaded, there is no
+It reads the harness's own files, on your own machines. Nothing is uploaded, there is no
 account, and the only thing it ever writes back is a single archive flag.
 
-> **Status:** published as-is. I built this for myself and cannot promise to maintain it —
-> issues and PRs are welcome but may go unanswered, and forking is an entirely reasonable
-> thing to do. [CONTRIBUTING.md](CONTRIBUTING.md) sets out what to expect.
+> **Status (upstream author's note):** published as-is. He built this for himself and cannot
+> promise to maintain it — issues and PRs are welcome but may go unanswered, and forking is
+> an entirely reasonable thing to do. [CONTRIBUTING.md](CONTRIBUTING.md) sets out what to expect.
 
 ## Run it
 
@@ -24,11 +26,13 @@ second process. For a built version, `npm start` (build + serve) or `npm run ser
 `dist/` already exists. Binds to `127.0.0.1` by default, and answers only its own page — see
 [Keeping it local](#keeping-it-local).
 
-**macOS, Linux and Windows.** Opening a thread, revealing a folder and starting a new session
-all go through a `harness://` deep link handed to the OS opener — `open(1)` on macOS,
-`xdg-open` on Linux, ShellExecute on Windows. The scanning half was portable already. Note that
-the deep link needs a desktop app registered for that scheme, so on Linux the folder buttons
-work while opening a thread has nothing to reach yet.
+**Linux, macOS and Windows.** Opening a thread, revealing a folder and starting a new session
+all go through a `harness://` deep link handed to the OS opener — `xdg-open` on Linux,
+`open(1)` on macOS, ShellExecute on Windows. The scanning half was portable already. This fork
+runs the server on Linux and reads sessions from other machines as well as its own (see below).
+Note that the deep link needs a desktop app registered for that scheme on the machine showing
+the colony, so where nothing is registered the folder buttons still work while opening a thread
+has nothing to reach yet.
 
 ## Which harnesses work
 
@@ -62,8 +66,8 @@ and how to find where a given harness keeps its sessions:
 **→ [`server/harnesses/README.md`](server/harnesses/README.md)**
 
 If you add one, a PR is very welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) first, which is
-honest about how much support I can offer. If landing it means editing the scanner or anything
-under `src/`, please mention that: it means the seam needs widening, and I would rather fix that
+honest about how much support the upstream author can offer. If landing it means editing the scanner or anything
+under `src/`, please mention that: it means the seam needs widening, and he would rather fix that
 than have you work around it.
 
 ## What you are looking at
@@ -177,10 +181,10 @@ into the same repo. Picking somebody is also picking the zone they are standing 
 **The repo**, at the top, whether or not anybody is selected:
 
 - **New conversation** (`C`) starts a fresh thread in that folder. It is the same
-  `claude://code/new?folder=…` deep link Finder's "New Claude Code Session Here" quick
+  `claude://code/new?folder=…` deep link the macOS Finder's "New Claude Code Session Here" quick
   action uses, so the desktop app opens an empty session with the repo as its workspace —
   nothing is resumed and nothing is written.
-- **Finder** (Explorer on Windows) opens the folder, **Copy path** copies it.
+- **Reveal in file manager** (Finder on macOS, Explorer on Windows, the system file manager on Linux) opens the folder, **Copy path** copies it.
 - Underneath, everything running in that repo, whoever wants something first. Clicking one
   flies to its astronaut and selects it.
 
@@ -213,7 +217,7 @@ stomp the flag, so the colony re-asserts it on every scan — an archive that ge
 back within one poll.
 
 Nothing is ever written to your Claude Code data except that one `isArchived` field. The
-folder buttons only ever hand a path to `open`.
+folder buttons only ever hand a path to the OS opener.
 
 The deep links above are the **Claude Code adapter's** business, not the colony's — another
 harness plugs its own in, and a harness with no deep link simply greys the button out. See
@@ -225,7 +229,7 @@ and `~/workspaces/2/foo`, which is what you get keeping parallel copies instead 
 it grows leftward until it is not, and you get `1/foo` and `2/foo` on separate ground. Only
 names that actually collide change, because the name is also the key your saved layout is
 stored under and disambiguating everything would move every plot on the map. A repo that has
-moved or gone since the last scan fails at the server rather than handing `open` a dead path.
+moved or gone since the last scan fails at the server rather than handing the OS opener a dead path.
 
 Name plates are hit-tested in screen space rather than raycast: they are billboarded in the
 vertex shader, so a raycast would test the quad where it was authored rather than where it
@@ -566,7 +570,7 @@ more interesting target than a localhost toy usually is. Three things hold it in
   `Host: their-domain`, and are refused.
 - **It checks `Origin`.** A cross-site `fetch` with a `text/plain` body is not preflighted, so
   without this any page you happened to have open could POST here — spawning sessions, opening
-  Finder windows, or overwriting the colony layout — even while unable to read the response.
+  file-manager windows, or overwriting the colony layout — even while unable to read the response.
   Requests from anywhere but this server's own page are refused.
 
 The practical cost: a bare `curl` POST is refused too, since browsers always send `Origin` on
@@ -660,12 +664,14 @@ Built by **[Jarren Rocks](https://jarren.rocks)**, mostly as a side effect of bu
 **[Emra](https://emra.app)** — which is where most of the threads in the screenshots come from,
 and why a tool for keeping track of a lot of them at once existed in the first place.
 
+This fork adds Linux server support, the Hermes and OpenCode adapters, and the remote-machine design; everything above remains the upstream author's work.
+
 ## Licence
 
 [MIT](LICENSE) © Jarren Rocks. Do what you like with it — including forking it, which
 [CONTRIBUTING.md](CONTRIBUTING.md) explains is a first-class option rather than a last resort.
 
-The art is not mine. Three CC0 packs by **[Kay Lousberg](https://kaylousberg.com)** — [Space
+The art is not the upstream author's own. Three CC0 packs by **[Kay Lousberg](https://kaylousberg.com)** — [Space
 Base Bits](https://kaylousberg.itch.io/space-base-bits), [Character
 Animations](https://kaylousberg.itch.io/kaykit-character-animations) and [Forest Nature
 Pack](https://kaylousberg.itch.io/kaykit-forest) — are built into the `.glb` files in
