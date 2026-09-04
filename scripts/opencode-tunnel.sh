@@ -20,15 +20,18 @@
 #   scripts/opencode-tunnel.sh --print   # detached tunnel + export lines
 #                                        # (values visible; prefer exec mode)
 #
-# Env overrides: OPENCODE_SSH_TARGET (default user@winpc-lan),
+# Env (required): OPENCODE_SSH_TARGET (e.g. user@winpc-lan),
 #                OPENCODE_LOCAL_PORT (default 4096).
+#
+# Real connection values live in the operator's environment, never in this
+# repo (public-fork hygiene: no machine names, LAN IPs, or SSH usernames).
 #
 # NOTE: never run this script with `sh -x` / `set -x` — traces would leak the
 # ephemeral serve password into your shell history / logs.
 
 set -u
 
-TARGET="${OPENCODE_SSH_TARGET:-user@winpc-lan}"
+TARGET="${OPENCODE_SSH_TARGET:?set OPENCODE_SSH_TARGET=user@winpc-lan (see header)}"
 LOCAL_PORT="${OPENCODE_LOCAL_PORT:-4096}"
 MODE="exec"
 
