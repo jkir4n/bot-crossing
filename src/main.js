@@ -637,13 +637,10 @@ async function boot() {
     if (!document.hidden) poll()
   })
 
-  // The pre-rename key counts as seen, so the rename does not pop the help sheet at
-  // somebody who dismissed it long ago.
-  if (!localStorage.getItem('botcrossing.seen-help') && !localStorage.getItem('cosmo.seen-help')) {
+  if (!localStorage.getItem('botcrossing.seen-help')) {
     hud.toggleHelp(true)
     localStorage.setItem('botcrossing.seen-help', '1')
   } else {
-    localStorage.setItem('botcrossing.seen-help', '1')
     hud.hint('Drag to move · click an astronaut · H hides everything', 5200)
   }
 }

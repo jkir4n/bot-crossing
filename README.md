@@ -21,12 +21,14 @@ npm install && npm run dev
 
 `npm run dev` is the whole thing: the API lives inside the Vite dev server, so there is no
 second process. For a built version, `npm start` (build + serve) or `npm run serve` if
-`dist/` already exists. Binds to `127.0.0.1`, and answers only its own page — see
+`dist/` already exists. Binds to `127.0.0.1` by default, and answers only its own page — see
 [Keeping it local](#keeping-it-local).
 
-**macOS only, for now.** Opening a thread, revealing a folder and starting a new session all
-go through `open(1)` and a `harness://` deep link. The scanning half is portable; nobody has
-done the Linux or Windows side of the opener yet.
+**macOS, Linux and Windows.** Opening a thread, revealing a folder and starting a new session
+all go through a `harness://` deep link handed to the OS opener — `open(1)` on macOS,
+`xdg-open` on Linux, ShellExecute on Windows. The scanning half was portable already. Note that
+the deep link needs a desktop app registered for that scheme, so on Linux the folder buttons
+work while opening a thread has nothing to reach yet.
 
 ## Which harnesses work
 
@@ -177,7 +179,7 @@ into the same repo. Picking somebody is also picking the zone they are standing 
   `claude://code/new?folder=…` deep link Finder's "New Claude Code Session Here" quick
   action uses, so the desktop app opens an empty session with the repo as its workspace —
   nothing is resumed and nothing is written.
-- **Finder** opens the folder, **Copy path** copies it.
+- **Finder** (Explorer on Windows) opens the folder, **Copy path** copies it.
 - Underneath, everything running in that repo, whoever wants something first. Clicking one
   flies to its astronaut and selects it.
 
@@ -555,7 +557,8 @@ the blade's shadow lags the blade.
 The server reads your agent transcripts and can ask the OS to open things, which makes it a
 more interesting target than a localhost toy usually is. Three things hold it in:
 
-- **It binds `127.0.0.1`.** Nothing outside the machine can reach it.
+- **It binds `127.0.0.1`.** Nothing outside the machine can reach it, unless you deliberately
+  change that — see below.
 - **It checks `Host`.** Binding to loopback is not on its own enough. An attacker who points
   a domain they control at `127.0.0.1` — DNS rebinding — reaches the server *as a same-origin
   page* and can then read every reply. Those requests still arrive carrying
@@ -568,6 +571,25 @@ more interesting target than a localhost toy usually is. Three things hold it in
 The practical cost: a bare `curl` POST is refused too, since browsers always send `Origin` on
 POST and its absence means the caller is not the page. Add `-H 'Origin: http://localhost:5274'`
 if you are scripting against the API.
+
+### Serving it to your network
+
+`BOT_CROSSING_HOST` changes what `npm run serve` binds to, so you can watch the colony from a
+tablet on the sofa:
+
+```bash
+BOT_CROSSING_HOST=0.0.0.0 npm start
+```
+
+**Understand what that hands out before you do it.** The two checks above stop a *web page* from
+driving the server; they are not access control, and they do nothing about another device asking
+directly. Anyone who can reach the port gets every thread title, every opening prompt, every
+working directory and branch — a fairly complete picture of what you have been working on — plus
+the ability to open threads, reveal folders and start sessions on your machine. There is no
+password, because there was never meant to be anything to guard.
+
+Fine on a network you own. Not something to leave running on café wifi, and worth remembering
+that a machine on a VPN or a mesh network is reachable by everything else on it too.
 
 What it touches on disk, in full:
 
