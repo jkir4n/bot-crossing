@@ -1,0 +1,17 @@
+[Unit]
+Description=Bot Crossing OpenCode tunnel keeper (read-only SSH tunnel to Desktop serve)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hermes/bot-crossing
+# Copy this template to ~/.config/systemd/user/bot-crossing-opencode-keeper.service
+# and set the real target there (operator environment — never the repo):
+Environment=OPENCODE_SSH_TARGET=user@winpc-lan
+ExecStart=/home/hermes/bot-crossing/scripts/opencode-keeper.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
