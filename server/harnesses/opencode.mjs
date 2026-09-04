@@ -18,8 +18,11 @@
  *      background so a scan never blocks on a transfer. While Desktop runs,
  *      its `-wal` carries the newest writes, so db AND wal are pulled; the
  *      `-shm` is deliberately NOT copied (shared-memory, rebuilt on open —
- *      a live shm copy is meaningless). A torn copy while Desktop writes
- *      fails verification and the previous snapshot keeps serving.
+ *      a live shm copy is meaningless). The wal stages beside the pending db
+ *      under its real `-wal` name, so verification opens the same pair the
+ *      swap would publish; a mid-pull Desktop write (fresh re-stat drifts
+ *      from the pre-pull signature) or a failed verify discards the set and
+ *      the previous snapshot keeps serving.
  *      Config: OPENCODE_DB_SSH_TARGET (falls back to OPENCODE_SSH_TARGET,
  *      the same target the tunnel keeper uses), OPENCODE_DB_REMOTE_PATH
  *      (default `.local/share/opencode/opencode.db`, forward slashes).
@@ -277,9 +280,9 @@ function statTTLMs() {
 
 let statCache = { at: 0, sig: '', ok: false }
 
-function remoteStat(cfg) {
+function remoteStat(cfg, force = false) {
   const now = Date.now()
-  if (now - statCache.at < statTTLMs() && statCache.sig !== '') return statCache
+  if (!force && now - statCache.at < statTTLMs() && statCache.sig !== '') return statCache
   const rel = cfg.remotePath.replace(/\//g, '\\')
   const ps =
     `$rel='${rel}';` +
@@ -343,9 +346,11 @@ let pullInFlight = false
 let lastPullAttempt = 0
 
 /**
- * Verify a pulled copy before it goes live: the source may be mid-write
- * (Desktop checkpointing around our scp), and a torn copy must never
- * replace the last good snapshot.
+ * Verify a pulled copy before it goes live: the pending db stages with its
+ * wal under the real `-wal` name, so this opens the same pair the swap
+ * would publish (deletes included). Only `-shm`/`-journal` are dropped
+ * afterwards — both are read sidecars SQLite rebuilds; the `-wal` is pulled
+ * data and must survive verification.
  */
 function verifySnapshot(file) {
   let db
@@ -364,7 +369,7 @@ function verifySnapshot(file) {
     } catch {
       /* already gone */
     }
-    for (const suffix of ['-shm', '-wal', '-journal']) {
+    for (const suffix of ['-shm', '-journal']) {
       try {
         fs.rmSync(file + suffix, { force: true })
       } catch {
@@ -376,6 +381,27 @@ function verifySnapshot(file) {
 
 function finishPull(cfg, sig, nextDb, nextWal, startedAt) {
   pullInFlight = false
+  // Torn-pair guard: the db (~500MB) and wal copies are sequential, so a
+  // Desktop write mid-pull pairs a newer wal with an older db. Re-stat
+  // fresh (bypassing the TTL cache); any signature drift discards the set
+  // and the previous snapshot keeps serving until the next window retries.
+  let fresh = { ok: false, sig: '' }
+  try {
+    fresh = remoteStat(cfg, true)
+  } catch {
+    /* unreachable — discarded below */
+  }
+  if (!fresh.ok || fresh.sig !== sig) {
+    for (const f of [nextDb, nextWal]) {
+      try {
+        fs.rmSync(f, { force: true })
+      } catch {
+        /* best effort */
+      }
+    }
+    warnThrottled('pull-torn', 'snapshot pull raced a Desktop write — keeping previous snapshot')
+    return
+  }
   const check = verifySnapshot(nextDb)
   // Drop verify sidecars; a missing wal pull is fine (nextWal simply absent).
   for (const f of [nextDb + '-shm', nextDb + '-journal']) {
@@ -414,11 +440,19 @@ function finishPull(cfg, sig, nextDb, nextWal, startedAt) {
     } catch {
       /* fully checkpointed — the db file alone is a consistent view */
     }
+    let walBytes = 0
+    try {
+      const wst = fs.statSync(REMOTE_SNAPSHOT_DB + '-wal')
+      if (wst.isFile()) walBytes = wst.size
+    } catch {
+      /* no wal live — db alone is the consistent view */
+    }
     fs.writeFileSync(REMOTE_META_FILE, JSON.stringify({
       sig,
       pulledAt: Date.now(),
       pullSeconds: Math.round((Date.now() - startedAt) / 1000),
       sessions: check.sessions,
+      walBytes,
       target: cfg.target.split('@')[1] || '',
     }))
     console.warn(`bot-crossing: opencode snapshot refreshed (${check.sessions} sessions)`)
@@ -442,7 +476,7 @@ function startBackgroundPull(cfg, sig) {
   try {
     fs.mkdirSync(SNAP_DIR, { recursive: true })
     const nextDb = REMOTE_SNAPSHOT_DB + '.next'
-    const nextWal = REMOTE_SNAPSHOT_DB + '-wal.next'
+    const nextWal = REMOTE_SNAPSHOT_DB + '.next-wal'
     for (const f of [nextDb, nextWal]) {
       try {
         fs.rmSync(f, { force: true })
@@ -461,7 +495,7 @@ function startBackgroundPull(cfg, sig) {
   }
   const startedAt = Date.now()
   const nextDb = REMOTE_SNAPSHOT_DB + '.next'
-  const nextWal = REMOTE_SNAPSHOT_DB + '-wal.next'
+  const nextWal = REMOTE_SNAPSHOT_DB + '.next-wal'
   started.on('error', () => {
     pullInFlight = false
   })
