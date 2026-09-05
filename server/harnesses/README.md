@@ -148,6 +148,41 @@ and watch which files change:
 find ~ -maxdepth 4 -newermt '-2 minutes' -type f 2>/dev/null | grep -iv Library/Caches
 ```
 
+## Cursor
+
+I mapped this one against a real install (3.19.x on a second machine, colony on
+Linux). Two places matter, and one tempting one does not:
+
+- Per-chat transcripts in `~/.cursor/projects/<slug>/agent-transcripts/<uuid>/<uuid>.jsonl`
+  — JSONL lines shaped `{role, message:{content:[...]}}`. The first user line carries
+  the prompt inside `<user_query>` plus a `<timestamp>` tag (strip the parenthetical
+  zone before `Date.parse`). No title, no archive flag, no focus signal in the file.
+- The search index at `Cursor/User/globalStorage/conversation-search.db` (a few hundred
+  KB, no WAL) — table `conversations(id, title, branches, updated_at, is_archived)`
+  plus a `conversation_fts` body I use as the preview fallback. Titles and the archive
+  flag live here.
+- The per-workspace `state.vscdb` files look promising but hold no chats (layout keys
+  only; the `composerHeaders` table exists but is empty). I went down that hole so you
+  don't have to. The 500MB+ global `state.vscdb` is never pulled either.
+
+The index and the transcript set don't fully overlap, so the scan is their union:
+index-only rows stand with project `unknown`, transcript-only rows take their title from
+the first prompt, and a uuid filed under two project slugs (a stale move copy) dedupes
+to the newest transcript. One chat, one astronaut — ids never widen.
+
+When the colony runs on the same machine as Cursor, point `CURSOR_DATA_DIR` (default
+`~/.cursor`) and `CURSOR_SEARCH_DB` at the store and you're done. Over SSH, one
+PowerShell pass emits the search index (base64, copied to temp first so a concurrent
+write can't tear it), transcript stats, and first-line heads into a local snapshot:
+`CURSOR_SSH_TARGET`, `CURSOR_REMOTE_PATH` (default `.cursor`), and
+`CURSOR_REMOTE_SEARCH_DB` configure it; snapshots live under `CURSOR_SNAPSHOT_DIR`.
+A failed pull or a torn snapshot keeps the previous one serving.
+
+`setArchived` says so on purpose — flipping the index's flag from here would race the
+desktop app — and there is no verified deep link, so opening also says so. I verified
+scan count against a direct sqlite count of the index plus the transcript files, and a
+corrupt snapshot degrades to the last good one without taking the other harnesses down.
+
 ## Checking your work
 
 There is no test suite to run yet. What the Claude Code adapter was verified against, and what
