@@ -1,5 +1,25 @@
 # Changelog — Bot Crossing Colony
 
+## 2026-09-05 — Cursor adapter live, ghost prunes, four harnesses serving
+
+- `3144b62` — Cursor harness adapter (snapshot-primary transcript union +
+  search index, one SSH pass; read-only, no deep link).
+- `3763f14` — Cursor: prune deleted-session ghosts + content-dedupe
+  (16 union rows → 3 real chats).
+- `ac7c5ff` — Antigravity: prune annotation-only ghosts (orphan `.pbtxt`
+  left behind on delete).
+- Colony live on `:5274` (systemd user unit + per-harness snapshot drop-ins):
+  183 threads — Hermes 168, OpenCode 5, Antigravity 7, Cursor 3.
+- Upstream: PR #2 (Run on Linux) merged; PR #7 (Hermes adapter) open.
+
+## 2026-09-04 (late) — OpenCode + Antigravity adapters live
+
+- OpenCode snapshot-primary (copy-then-query, db+wal verified pair,
+  torn-pull discard) with serve API as live overlay; keeper-held tunnel.
+- `4798425` — Antigravity harness adapter (snapshot-primary).
+- `7c8ee1f` — Antigravity prunes summary-index-only ghosts (no backing
+  file = deleted).
+
 ## 2026-09-04 — Project setup + research (docs only, no code)
 
 - Created project folder (README + AGENTS.md + CHANGELOG),

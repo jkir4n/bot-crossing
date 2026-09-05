@@ -1,6 +1,6 @@
 # Bot Crossing — your agent threads, as a colony
 
-> **Fork note:** this is a personal fork of [jarrenrocks/bot-crossing](https://github.com/jarrenrocks/bot-crossing), kept close to upstream. It adds Linux server support, Hermes and OpenCode harness adapters, and a remote-machine design that reads sessions from other machines as well as the server's own. Upstream-authored passages that spoke in the first person are attributed to the upstream author.
+> **Fork note:** this is a personal fork of [jarrenrocks/bot-crossing](https://github.com/jarrenrocks/bot-crossing), kept close to upstream. It adds Linux server support, Hermes, OpenCode, Antigravity and Cursor harness adapters, and a remote-machine design that reads sessions from other machines as well as the server's own. Upstream-authored passages that spoke in the first person are attributed to the upstream author.
 
 **[botcrossing.com](https://botcrossing.com)**
 
@@ -46,8 +46,8 @@ somebody writing that adapter.
 | **Hermes Agent** | ✅ **Supported in this fork** — local session store, one astronaut per bot profile (see below) |
 | [Codex CLI](https://developers.openai.com/codex/cli) (OpenAI) | ⬜ Not yet — transcripts found at `~/.codex/sessions/`, [notes here](server/harnesses/README.md#starting-points) |
 | [OpenCode](https://opencode.ai) | ✅ **Supported in this fork** — serve liveness over a snapshot-primary full history (see below) |
-| [Antigravity CLI](https://antigravity.google) (Google) | ⬜ Not yet — the successor to Gemini CLI, which Google stopped serving individual accounts on 18 June 2026 |
-| [Cursor](https://cursor.com) (`cursor-agent`) | ⬜ Not yet |
+| [Antigravity CLI](https://antigravity.google) (Google) | ✅ **Supported in this fork** — snapshot-primary store pull with ghost pruning (see below) |
+| [Cursor](https://cursor.com) (`cursor-agent`) | ✅ **Supported in this fork** — transcript + search-index union over one snapshot pull (see below) |
 | [Amp](https://ampcode.com) (Sourcegraph) | ⬜ Not yet |
 | [Aider](https://aider.chat) | ⬜ Not yet |
 | [Goose](https://block.github.io/goose/) (Block) | ⬜ Not yet |
@@ -664,7 +664,7 @@ Built by **[Jarren Rocks](https://jarren.rocks)**, mostly as a side effect of bu
 **[Emra](https://emra.app)** — which is where most of the threads in the screenshots come from,
 and why a tool for keeping track of a lot of them at once existed in the first place.
 
-This fork adds Linux server support, the Hermes and OpenCode adapters, and the remote-machine design; everything above remains the upstream author's work.
+This fork adds Linux server support, the Hermes, OpenCode, Antigravity and Cursor adapters, and the remote-machine design; everything above remains the upstream author's work.
 
 ## Licence
 
@@ -696,7 +696,7 @@ Not affiliated with Anthropic, OpenAI, Google, or any of the other harness vendo
 ### Idea in one line
 
 Every agent thread on every machine is an astronaut. One hex zone per project
-folder. Multiple harnesses (Hermes, OpenCode, Codex, Antigravity) show up as one
+folder. Multiple harnesses (Hermes, OpenCode, Antigravity, Cursor) show up as one
 union colony, served from an always-on home server, viewable from any browser.
 
 ### Architecture (built 04 Sep 2026)
@@ -718,11 +718,22 @@ union colony, served from an always-on home server, viewable from any browser.
 - **Codex CLI (second machine)** → not yet: file-based parse of
   `~/.codex/sessions/…/rollout-*.jsonl` via a thin read-only pull shim on that
   machine, per `server/harnesses/README.md` §starting-points.
-- **Antigravity** → session paths still undiscovered; needs mapping on a machine
-  with it installed. Last in line.
+- **Antigravity (second machine)** → `server/harnesses/antigravity.mjs`:
+  snapshot-primary pull of the remote session store into a local cache, same
+  mechanics as OpenCode (copy-then-query, never the live files). Prunes
+  summary-index rows with no backing file and annotation orphans left behind
+  on delete. Read-only; open/new-session grey out per the interface.
+- **Cursor (second machine)** → `server/harnesses/cursor.mjs`: per-chat
+  transcripts unioned with the search index over one snapshot pull (transcript
+  stats + first-line heads + base64 index copy). Prunes index-only stubs,
+  contentless stubs, same-conversation copies under different slugs (newest
+  transcript wins) and stale transcript-only rows — fail-open when the index
+  is unreadable, and `is_archived` fills the archived field, never the prune
+  decision. Read-only.
 - **Remote-open (Phase 2):** tiny authenticated listener on the second machine;
   Phase 1 greys out open for remote threads (the interface supports it natively).
-- **IDs are harness-prefixed** (`hermes:<pilot>:<id>`, `opencode:<session-id>`)
+- **IDs are harness-prefixed** (`hermes:<pilot>:<id>`, `opencode:<session-id>`,
+  `antigravity:<uuid>`, `cursor:<uuid>`)
   so harnesses never merge threads.
 - **An unreachable machine reads as absent, never as error** — the scan and the
   other harnesses are never affected.
@@ -793,6 +804,23 @@ disrupting Desktop (no restarts, no config or firewall changes on that side).
   `OPENCODE_DB_STAT_TTL_SECONDS`, `OPENCODE_DB_PULL_MIN_SECONDS`,
   `OPENCODE_DB_PATH`.
 
+### Deployment
+
+The colony runs as a user systemd unit on the Linux host
+(`bot-crossing.service`: `WorkingDirectory` is the repo checkout, port 5274,
+production `npm start` build). Each remote snapshot pull takes its SSH target
+from a unit drop-in holding one env var, values operator-side and never in
+the repo:
+
+- `antigravity-snapshot.conf` → `ANTIGRAVITY_SSH_TARGET`
+- `opencode-snapshot.conf` → `OPENCODE_DB_SSH_TARGET` (falls back to
+  `OPENCODE_SSH_TARGET`, the keeper/tunnel target)
+- `cursor-snapshot.conf` → `CURSOR_SSH_TARGET`
+
+After changing one: `systemctl --user daemon-reload` +
+`systemctl --user restart bot-crossing.service`. Ship code with a push to the
+fork's `main`, then the Windows checkout pulls the fork.
+
 ### Signature feature (Phase 2): solar tile
 
 A solar farm at the colony's edge driven by minimal live Home Assistant data (solar W,
@@ -803,14 +831,17 @@ carries night lighting. Ambient-only; a failed poll degrades to a neutral tile.
 ### Upstream relationship
 
 Fork-first (our direction diverges: Linux + Windows + multi-machine). PR back only
-the clean separable slices (Linux `launch()`, OpenCode adapter, Codex adapter).
-Author publishes as-is, PRs may go unanswered — never gate progress on review.
+the clean separable slices: Linux `launch()` (merged as #2), the Hermes adapter
+(open as #7), then the OpenCode and Cursor adapters. Author publishes as-is,
+PRs may go unanswered — never gate progress on review. Fork-only stays
+fork-only: remote-colony snapshot pulls, solar tile, one-astronaut-per-bot roster.
 
 ### Status
 
-Live 04 Sep 2026: Linux port + Hermes adapter (pilot-grouped, one astronaut per
-bot) + OpenCode adapter (snapshot-primary full history, WAL-complete pulls,
-keeper-held tunnel) all serving in the production colony — `/api/threads`
-shows the Hermes roster plus the full OpenCode history. Remaining: Codex
-adapter, Antigravity mapping, remote-open listener, solar tile. See `AGENTS.md`
-for the phased TODO.
+Live 05 Sep 2026: Linux port + four harness adapters (Hermes, OpenCode,
+Antigravity, Cursor) all serving in the production colony — `/api/threads`
+shows 183 threads (Hermes 168, OpenCode 5, Antigravity 7, Cursor 3). Recent:
+Cursor adapter + ghost prune (16 union rows → 3 real chats), Antigravity
+annotation-orphan prune. Remaining: Codex adapter, remote-open listener,
+solar tile. Upstream PR #2 (Run on Linux) merged, PR #7 (Hermes adapter) open.
+See `AGENTS.md` for the phased TODO.

@@ -128,6 +128,22 @@ Do not put a file handle, a class instance, or a secret in it.
 - **Never widen `id` collisions.** The colony keys its archive list and saved layout on `id`.
   Two harnesses handing back the same id would merge two unrelated threads into one astronaut.
 
+### Pruning ghosts
+
+Three prune rules across two adapters have converged on the same shape of problem: the harness's index outlives the thing
+it indexes, so the scan starts from the union and prunes back to what is real. The shared
+rules, if your harness has an index that can go stale:
+
+- **Prune from the union, never from one side alone.** Antigravity drops summary-index rows
+  with no backing file and annotation orphans; Cursor drops index-only stubs, contentless
+  stubs, same-conversation copies under different slugs (newest wins), and stale
+  transcript-only rows.
+- **Fail open.** When the backing store is unreadable, the prune rules that depend on it stay
+  off — a missing index must never hide transcripts by itself.
+- **Archive flags are not deletion signals.** They fill the thread's `archived` field and never
+  the prune decision.
+- **One chat, one astronaut** — ids never widen in the process.
+
 ## Starting points
 
 Verified on a real machine:
