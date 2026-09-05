@@ -62,7 +62,7 @@
 - [x] Linux `launch()` patch (`xdg-open`, platform switch) — done, upstream PR #2 open.
 - [x] Hermes adapter (session mapping) — live, 168 threads (cron skipped), read-only + archive flag.
 - [x] Hermes roster: one astronaut per bot (pilot-grouped, `a020e49`) — standing model. Future:
-      walking-between-projects variant; extend pilot-folding to other harnesses.
+      walking-between-projects variant only (other harnesses stay per-session by decision).
 - [x] Deploy prod build on Linux host — systemd `bot-crossing.service`, verified `:5274`.
 - [x] OpenCode adapter (snapshot-primary copy-then-query of the session store, db+wal verified pair;
       serve API as live overlay; keeper-held tunnel) — live.
@@ -81,9 +81,8 @@
 - [ ] Solar tile (Home Assistant REST poller → drive day/night engine + panel glow + night
       lighting; ambient-only; decide later whether <30% battery earns a badge).
 - [ ] Remote-open listener on WinPC (authenticated, LAN).
-- [ ] Hermes roster extensions (design first): single astronaut walking between session plots vs
-      one-per-profile standing; fold other harnesses into pilot-style grouping. Renderer (`src/`)
-      changes — fork-only.
+- [ ] Hermes roster: walking-between-projects variant (design first; renderer `src/` changes —
+      fork-only). Other harnesses stay per-session by user decision — no folding.
 
 ### Upstream PRs (courtesy, never gating)
 - [x] Linux `launch()` → upstream (PR #2 merged 05 Sep 2026). [ ] OpenCode adapter → upstream.
