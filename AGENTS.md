@@ -70,7 +70,9 @@
       orphans) — live.
 - [x] Cursor adapter (transcript + search-index union over one snapshot pull; prunes index stubs,
       contentless stubs, cross-slug copies, stale transcript-only rows; 16 union rows → 3 real) — live.
-- [ ] Codex adapter (`rollout-*.jsonl` parser + thin `GET /threads` shim on WinPC).
+- [ ] Codex adapter — skip building our own; both upstream PRs (#5 aschenoni, #12 DiamondGeezer)
+      are open. Wait for the author to merge one, then sync it into the fork (daily 10am watcher
+      notifies). Only build our own if both sit unmerged for weeks and we need it.
 - [ ] Remote-reader adapters + `host:harness` id prefix + stale/last-seen UI.
 - [ ] Deploy prod build on Linux host; verify from phone + PC browsers.
 - [ ] Windows Firewall inbound rule for serve/shim ports.
