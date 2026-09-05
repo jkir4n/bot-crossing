@@ -47,8 +47,10 @@
  * appStartedAt is omitted: with no outside write to stomp, there is no
  * memory-rewrite guard to drive.
  *
- * Annotation-only uuids (no db/brain — deleted or remote sessions) appear as
- * title+lastViewed rows with source 'annotation-only', never an error.
+ * Annotation-only uuids (no db, no brain transcript) are deleted-conversation
+ * leftovers — the app leaves orphan .pbtxt files behind on delete — and are
+ * SKIPPED: a real conversation always has a db (created on first user
+ * message) or a brain transcript.
  * Summary-index-only uuids (no db, brain, or annotation anywhere) are
  * SKIPPED: the index retains entries for deleted conversations, and without
  * any backing file they are not threads worth showing.
@@ -555,11 +557,13 @@ async function readLocal(home) {
     const head = await transcriptHead(home, uuid)
     if (head) records.get(uuid).tx = head
   }
-  // The summary index retains entries for deleted conversations: a uuid with
-  // no backing source (no db, no brain transcript, no annotation) is not a
-  // thread — prune it so index-only ghosts never reach the colony.
+  // The summary index retains entries for deleted conversations, and the app
+  // leaves orphan annotation files behind on delete: an annotation-only uuid
+  // is a deleted-conversation leftover, not a thread. A real conversation
+  // always has a db (created on first user message) or a brain transcript —
+  // prune anything with neither so ghosts never reach the colony.
   for (const [uuid, rec] of [...records]) {
-    if (!rec.dbSize && !rec.ann && !rec.tx) records.delete(uuid)
+    if (!rec.dbSize && !rec.tx) records.delete(uuid)
   }
   return records
 }
@@ -760,10 +764,11 @@ function manifestRecords(manifest) {
       /* skip that head */
     }
   }
-  // Same prune as readLocal: summary-index-only uuids are deleted
-  // conversations the index retained — no db, brain, or annotation anywhere.
+  // Same prune as readLocal: annotation-only uuids are deleted-conversation
+  // leftovers (the app leaves orphan .pbtxt files behind on delete) — a real
+  // conversation always has a db or a brain transcript.
   for (const [uuid, rec] of [...records]) {
-    if (!rec.dbSize && !rec.ann && !rec.tx) records.delete(uuid)
+    if (!rec.dbSize && !rec.tx) records.delete(uuid)
   }
   return records
 }
