@@ -60,10 +60,14 @@
 
 ### Phase 1 — colony live (view-only union)
 - [x] Linux `launch()` patch (`xdg-open`, platform switch) — done, upstream PR #2 open.
-- [x] Hermes adapter (session mapping) — live, 131 threads (cron skipped), read-only + archive flag.
+- [x] Hermes adapter (session mapping) — live, 168 threads (cron skipped), read-only + archive flag.
 - [x] Deploy prod build on Linux host — systemd `bot-crossing.service`, verified `:5274`.
-- [ ] OpenCode adapter (HTTP client → Desktop/serve API over LAN; fallback:
-      copy-then-query `opencode.db`, never live-query over network/WAL).
+- [x] OpenCode adapter (snapshot-primary copy-then-query of the session store, db+wal verified pair;
+      serve API as live overlay; keeper-held tunnel) — live.
+- [x] Antigravity adapter (snapshot-primary store pull; prunes summary-index-only ghosts + annotation
+      orphans) — live.
+- [x] Cursor adapter (transcript + search-index union over one snapshot pull; prunes index stubs,
+      contentless stubs, cross-slug copies, stale transcript-only rows; 16 union rows → 3 real) — live.
 - [ ] Codex adapter (`rollout-*.jsonl` parser + thin `GET /threads` shim on WinPC).
 - [ ] Remote-reader adapters + `host:harness` id prefix + stale/last-seen UI.
 - [ ] Deploy prod build on Linux host; verify from phone + PC browsers.
@@ -73,14 +77,14 @@
 - [ ] Solar tile (Home Assistant REST poller → drive day/night engine + panel glow + night
       lighting; ambient-only; decide later whether <30% battery earns a badge).
 - [ ] Remote-open listener on WinPC (authenticated, LAN).
-- [ ] Antigravity adapter (needs session-path discovery first).
 - [ ] Hermes adapter v2 — astronauts are the actual bots (profiles: main/coder/
       researcher/…) shown on the projects they work on, not one astronaut per
       session. Needs renderer (`src/`) changes, so fork-only. Design first:
       single astronaut walking between session plots vs one-per-profile.
 
 ### Upstream PRs (courtesy, never gating)
-- [x] Linux `launch()` → upstream (PR #2 open 04 Sep 2026). [ ] OpenCode adapter → upstream.
+- [x] Linux `launch()` → upstream (PR #2 merged 05 Sep 2026). [ ] OpenCode adapter → upstream.
+- [x] Hermes adapter → upstream (PR #7 open, 04 Sep 2026).
 - [ ] Codex adapter → upstream. (Keep remote-colony + solar in fork only.)
 
 ## Harnesses / agents in scope (refer to these)
@@ -90,7 +94,8 @@
 | OpenCode Desktop | WinPC | Native `opencode serve` OpenAPI over LAN | https://opencode.ai/docs/server/ |
 | Codex CLI | WinPC | File parse (`~/.codex/sessions/`) + pull shim | repo `server/harnesses/README.md` §starting-points |
 | Hermes Agent | Linux host | Local adapter, session mapping | `hermes-agent` skill / dashboard |
-| Antigravity | WinPC | Undiscovered — map first | `find ~ -newermt` trick |
+| Antigravity | second machine | Snapshot-primary store pull + ghost pruning | repo `server/harnesses/README.md` |
+| Cursor | second machine | Transcripts + search index via snapshot pull | repo `server/harnesses/README.md` §Cursor |
 | Upstream project | — | `jarrenrocks/bot-crossing` (MIT, as-is) | https://github.com/jarrenrocks/bot-crossing |
 
 Future build sessions for this project may run from **any** harness (Hermes,
