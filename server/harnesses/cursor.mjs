@@ -81,7 +81,8 @@
  * running is a 5-minute recency heuristic; model is always '' (not stored
  * per chat); lastFocusedAt is 0; project names for drive-rooted slugs are
  * approximate (the slug encoding loses separators — `d-Projects-Hudiy`
- * reads as `Projects Hudiy`); remote previews come from the transcript
+ * reads as `Hudiy`, with the drive letter and `Projects` root stripped);
+ * remote previews come from the transcript
  * first line only (local falls back across the whole head).
  */
 
@@ -240,19 +241,25 @@ function parseTranscriptHead(head) {
  * Project slug -> { project, projectPath }. Drive-rooted slugs
  * (`d-Projects-Hudiy`) decode to a best-effort Windows path; the slug
  * encoding loses separators, so multi-word names read with spaces and the
- * approximation is documented, not hidden. Anything else stands as-is.
+ * approximation is documented, not hidden. The leading drive letter and the
+ * projects-root segment (`Projects`, case-insensitive — the <projects-folder>
+ * folder all WinPC repos live under) are display-only noise, so the project
+ * name drops them while projectPath keeps the true path. The no-folder
+ * bucket reads as Cursor's own panel labels it: `No Repo`. Anything else
+ * stands as-is.
  */
 function projectOfSlug(slug) {
   if (!slug || typeof slug !== 'string') return { project: 'unknown', projectPath: '' }
+  if (slug === 'empty-window') return { project: 'No Repo', projectPath: '' }
   const m = /^([a-zA-Z])-(.+)$/.exec(slug)
   if (m && m[2].includes('-')) {
     const rest = m[2].split('-').filter(Boolean)
+    const named = rest.length > 1 && /^projects$/i.test(rest[0]) ? rest.slice(1) : rest
     return {
-      project: rest.join(' '),
+      project: named.join(' '),
       projectPath: `${m[1].toUpperCase()}:/${rest.join('/')}`,
     }
   }
-  if (slug === 'empty-window') return { project: 'empty-window', projectPath: '' }
   return { project: slug || 'unknown', projectPath: '' }
 }
 
