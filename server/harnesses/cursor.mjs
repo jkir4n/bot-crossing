@@ -42,12 +42,32 @@
  *      Snapshots live under CURSOR_SNAPSHOT_DIR, else the user cache dir,
  *      else the tmpdir.
  *
- * The index and the transcript set do not fully overlap (15 index rows vs 7
- * transcript files at last check), so the scan is their UNION: index-only
- * rows are real conversations with titles and stand with project 'unknown';
- * transcript-only rows (no index entry) stand with titles from their first
- * prompt. A uuid filed under two project slugs (a stale move copy) dedupes
- * to the newest transcript — one chat, one astronaut, never widened ids.
+ * The index and the transcript set do not fully overlap, so the scan starts
+ * from their UNION — then prunes the ghosts the app leaves behind (verified
+ * Sep 2026: 3 real chats under 16 union rows). A uuid filed under two
+ * project slugs (a stale move copy) dedupes to the newest transcript, and:
+ *
+ *   1. Index-only rows with no title and no FTS body are skipped: the index
+ *      is append-only and retains stub rows for empty/deleted composers
+ *      (same ghost class as Antigravity's summary-index-only skip). A
+ *      titled index-only row still stands with project 'unknown'.
+ *   2. Contentless stubs are skipped: transcripts at or under 2KB whose head
+ *      parses to no prompt at all (e.g. a lone usage-limit error line). At
+ *      that size the head IS the whole file, so the parse is complete, not
+ *      truncated — a real chat always opens with its first user prompt.
+ *   3. Same-conversation copies under different uuids (a chat moved across
+ *      projects leaves the old .jsonl frozen in place) dedupe by first
+ *      prompt (timestamp + text): newest transcript wins, one chat, one
+ *      astronaut, ids never widen.
+ *   4. Transcript-only rows (no index entry) older than a day are skipped:
+ *      deleting a chat removes its index row but leaves the .jsonl files
+ *      behind (verified: frozen truncated copy + missing fts rowids). Under
+ *      a day the row may simply not be indexed yet, so fresh ones stand
+ *      with titles from their first prompt. When the index itself is
+ *      unreadable this rule stays off and everything stands (fail-open).
+ *
+ * is_archived is deliberately NOT a discriminator: live chats sit on both
+ * sides of it (a real session showed archived with no transcript loss).
  *
  * setArchived says so per the interface even though the index HAS an
  * is_archived flag: flipping it remotely would race the desktop app, which
@@ -380,6 +400,86 @@ function queryFtsBody(dbFile, id) {
   return ''
 }
 
+/* ------------------------------------------------------- ghost pruning */
+
+/**
+ * Transcripts at or under this size are fully covered by one head read, so
+ * a head that parses to nothing means the file holds no prompt — not a
+ * truncated read. Real chats always open with their first user prompt.
+ */
+const STUB_MAX_BYTES = 2048
+
+/**
+ * A transcript with no index row is a deleted chat (deletion drops the row
+ * but leaves the .jsonl) — unless it is this fresh, in which case the row
+ * may simply not be indexed yet.
+ */
+const INDEXLESS_TTL_MS = 24 * 60 * 60 * 1000
+
+const headPreview = (rec) => (rec.head && typeof rec.head.preview === 'string' ? rec.head.preview : '')
+const headCreated = (rec) => num(rec.head && rec.head.createdAt)
+const idxTitle = (rec) => (rec.idx && typeof rec.idx.title === 'string' ? rec.idx.title.trim() : '')
+
+/** Newest transcript wins; ties break bigger, then lexicographically — stable. */
+function contentWinner(u1, r1, u2, r2) {
+  const m1 = num(r1.tx.mtime)
+  const m2 = num(r2.tx.mtime)
+  if (m1 !== m2) return m1 > m2 ? u1 : u2
+  const s1 = num(r1.tx.size)
+  const s2 = num(r2.tx.size)
+  if (s1 !== s2) return s1 > s2 ? u1 : u2
+  return u1 < u2 ? u1 : u2
+}
+
+/**
+ * Drop deleted/empty-conversation ghosts from a uuid -> { idx, tx, head }
+ * map, in place. Runs on every records-producing site (local store,
+ * remote-manifest build, and snapshot serve) so each source is clean on
+ * its own and pre-prune snapshots come out clean too. indexRows is the number of parsed
+ * index entries behind these records — 0 when the index was unreadable,
+ * which disables the transcript-only rule (fail-open: a missing index must
+ * never hide transcripts by itself).
+ */
+function pruneGhostRecords(records, indexRows) {
+  for (const [uuid, rec] of [...records]) {
+    const txSize = num(rec.tx && rec.tx.size)
+    // 1. Index-only stub rows: no transcript, no title, no FTS preview.
+    if (!rec.tx && !idxTitle(rec) && !headPreview(rec)) {
+      records.delete(uuid)
+      continue
+    }
+    // 2. Contentless stubs: tiny transcript, fully parsed, yet no prompt.
+    if (rec.tx && txSize <= STUB_MAX_BYTES && !headPreview(rec) && !headCreated(rec)) {
+      records.delete(uuid)
+      continue
+    }
+    // 4. Transcript-only and stale: the index row is gone (deleted chat).
+    if (!rec.idx && rec.tx && indexRows > 0 && Date.now() - num(rec.tx.mtime) > INDEXLESS_TTL_MS) {
+      records.delete(uuid)
+    }
+  }
+  // 3. Same conversation under two uuids (a cross-project move leaves the
+  // old .jsonl frozen): same first prompt -> one survivor, newest wins.
+  const byContent = new Map()
+  for (const [uuid, rec] of [...records]) {
+    if (!rec.tx) continue
+    const created = headCreated(rec)
+    const preview = headPreview(rec)
+    if (!created || !preview) continue
+    const key = `${created}\n${preview.slice(0, 80)}`
+    const prev = byContent.get(key)
+    if (prev === undefined) {
+      byContent.set(key, uuid)
+      continue
+    }
+    const winner = contentWinner(prev, records.get(prev), uuid, rec)
+    const loser = winner === prev ? uuid : prev
+    records.delete(loser)
+    byContent.set(key, winner)
+  }
+  return records
+}
+
 /**
  * Every conversation the local store knows, keyed by uuid: index entry,
  * transcript stats, transcript head. A uuid filed under two project slugs
@@ -448,6 +548,13 @@ async function readLocal(home) {
       }
     }
   }
+  let indexRows = 0
+  if (searchSnap) {
+    for (const rec of records.values()) {
+      if (rec.idx) indexRows++
+    }
+  }
+  pruneGhostRecords(records, indexRows)
   return { records, searchSnap }
 }
 
@@ -662,6 +769,13 @@ function manifestRecords(manifest) {
       }
     }
   }
+  let indexRows = 0
+  if (manifest.search) {
+    for (const rec of records.values()) {
+      if (rec.idx) indexRows++
+    }
+  }
+  pruneGhostRecords(records, indexRows)
   return { records }
 }
 
@@ -678,6 +792,16 @@ function readSnapshotFile(file) {
     })
   }
   if (!records.size) throw new Error('snapshot has no records')
+  // Snapshots written before the ghost prune (or while the index pull was
+  // failing) still carry deleted/empty rows: prune at serve time too. The
+  // filter is idempotent, so already-clean snapshots pass through untouched.
+  // indexRows counts parsed index entries — 0 disables the transcript-only
+  // rule (fail-open, same as the build paths).
+  let indexRows = 0
+  for (const rec of records.values()) {
+    if (rec.idx) indexRows++
+  }
+  pruneGhostRecords(records, indexRows)
   return records
 }
 

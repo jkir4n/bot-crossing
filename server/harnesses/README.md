@@ -160,15 +160,26 @@ Linux). Two places matter, and one tempting one does not:
 - The search index at `Cursor/User/globalStorage/conversation-search.db` (a few hundred
   KB, no WAL) — table `conversations(id, title, branches, updated_at, is_archived)`
   plus a `conversation_fts` body I use as the preview fallback. Titles and the archive
-  flag live here.
+  flag live here. The remaining columns (source, scope, fingerprints) and the other
+  tables carry no liveness signal — I dumped them all to be sure.
 - The per-workspace `state.vscdb` files look promising but hold no chats (layout keys
   only; the `composerHeaders` table exists but is empty). I went down that hole so you
   don't have to. The 500MB+ global `state.vscdb` is never pulled either.
 
-The index and the transcript set don't fully overlap, so the scan is their union:
-index-only rows stand with project `unknown`, transcript-only rows take their title from
-the first prompt, and a uuid filed under two project slugs (a stale move copy) dedupes
-to the newest transcript. One chat, one astronaut — ids never widen.
+The index is append-only and deleted chats leave their transcript files behind, so
+the scan starts from the union and then prunes the ghosts (on my install: 3 real
+chats under 16 union rows). Index-only rows with no title and no FTS body are
+skipped, as are contentless stubs (a lone usage-limit error line parses to no prompt
+at all), same-conversation copies under different uuids (a cross-project move leaves
+the old `.jsonl` frozen in place — newest transcript wins), and transcript-only rows
+older than a day (deleting a chat drops its index row but leaves the files). Fresh
+transcript-only rows and titled index-only rows still stand, and when the index
+itself is unreadable the transcript-only rule stays off so a missing index never
+hides transcripts by itself. A uuid filed under two project slugs (a stale move
+copy) dedupes to the newest transcript. One chat, one astronaut — ids never widen.
+
+`is_archived` is not a deletion signal — live chats sit on both sides of it — so it
+only fills the thread's archived field, never the prune decision.
 
 When the colony runs on the same machine as Cursor, point `CURSOR_DATA_DIR` (default
 `~/.cursor`) and `CURSOR_SEARCH_DB` at the store and you're done. Over SSH, one
@@ -180,8 +191,10 @@ A failed pull or a torn snapshot keeps the previous one serving.
 
 `setArchived` says so on purpose — flipping the index's flag from here would race the
 desktop app — and there is no verified deep link, so opening also says so. I verified
-scan count against a direct sqlite count of the index plus the transcript files, and a
-corrupt snapshot degrades to the last good one without taking the other harnesses down.
+the scan against the app's own history panel (3 chats) after dumping every index row
+with all columns, every transcript's head and tail, and the per-workspace composer
+selections, and a corrupt snapshot degrades to the last good one without taking the
+other harnesses down.
 
 ## Checking your work
 
