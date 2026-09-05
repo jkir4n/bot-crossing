@@ -164,6 +164,21 @@ and watch which files change:
 find ~ -maxdepth 4 -newermt '-2 minutes' -type f 2>/dev/null | grep -iv Library/Caches
 ```
 
+## Hermes
+
+I read my own session store for this one — the `sessions` table in the
+agent's state DB, opened read-only, one SQL pass per scan plus a first-user
+preview per session. One astronaut per bot: the default profile plus every
+named profile with its own store shows up as its own pilot. Scheduled runs
+are skipped (each one would stand on the map as an astronaut nobody ever
+talks to). Archiving flips the harness's own archive flag; open/new-session
+grey out per the interface (terminal sessions have no link to hand back).
+Sessions run from the agent home bucket to `Hermes`; anything else takes its
+project name from its repo folder, optionally relabelled for display via
+`HERMES_PROJECT_ALIASES` (comma-separated `from=to` pairs, `from` matched
+case-insensitively, malformed pairs skipped — operator environment, never
+hardcoded names, since stored session roots keep their old folder string).
+
 ## Cursor
 
 I mapped this one against a real install (3.19.x on a second machine, colony on

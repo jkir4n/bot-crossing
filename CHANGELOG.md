@@ -11,6 +11,8 @@
 - Colony live on `:5274` (systemd user unit + per-harness snapshot drop-ins):
   183 threads — Hermes 168, OpenCode 5, Antigravity 7, Cursor 3.
 - Upstream: PR #2 (Run on Linux) merged; PR #7 (Hermes adapter) open.
+- `hermes:` project display aliases (`HERMES_PROJECT_ALIASES`, e.g. colony
+  tile reads the friendly project name instead of the folder basename).
 
 ## 2026-09-04 (late) — OpenCode + Antigravity adapters live
 

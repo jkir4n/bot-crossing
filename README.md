@@ -816,6 +816,9 @@ the repo:
 - `opencode-snapshot.conf` → `OPENCODE_DB_SSH_TARGET` (falls back to
   `OPENCODE_SSH_TARGET`, the keeper/tunnel target)
 - `cursor-snapshot.conf` → `CURSOR_SSH_TARGET`
+- `hermes-aliases.conf` → `HERMES_PROJECT_ALIASES` (display aliases for
+  Hermes project tiles, e.g. a folder basename relabelled to its friendly
+  name — operator environment, never the repo)
 
 After changing one: `systemctl --user daemon-reload` +
 `systemctl --user restart bot-crossing.service`. Ship code with a push to the

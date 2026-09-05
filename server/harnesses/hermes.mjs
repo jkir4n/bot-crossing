@@ -72,13 +72,47 @@ function pilotDBs() {
 
 const openRead = (file) => new DatabaseSync(file, { readOnly: true })
 
+/**
+ * Optional display aliases for derived project names, from
+ * `HERMES_PROJECT_ALIASES` — comma-separated `from=to` pairs. `from` matches
+ * the basename-derived name case-insensitively; a missing/unset/blank env
+ * means no aliases and malformed pairs (no `=`, empty side) are skipped.
+ * Operator environment, never hardcoded names: stored session roots keep
+ * their old folder string forever, so renaming a folder would split one
+ * project into two tiles while an alias only relabels the display.
+ *
+ * Pure and injectable (env defaults to the live process env) so it can be
+ * unit-tested without touching the real environment.
+ */
+export function parseProjectAliases(env = process.env) {
+  const raw = env.HERMES_PROJECT_ALIASES
+  if (!raw || !raw.trim()) return []
+  const out = []
+  for (const pair of raw.split(',')) {
+    const eq = pair.indexOf('=')
+    if (eq < 0) continue
+    const from = pair.slice(0, eq).trim()
+    const to = pair.slice(eq + 1).trim()
+    if (!from || !to) continue
+    out.push([from.toLowerCase(), to])
+  }
+  return out
+}
+
+function applyProjectAlias(project, env = process.env) {
+  const alias = parseProjectAliases(env).find(([from]) => from === project.toLowerCase())
+  return alias ? alias[1] : project
+}
+
 function toThread(row, pilot) {
   const root = row.git_repo_root || row.cwd || ''
   // Sessions run from the agent home (or with no cwd) are all the same
   // project — don't let basename case/dirname split one bot into many.
   const home = HOME
   const isHome = !root || root === home || root === home + '/.hermes'
-  const project = isHome ? 'Hermes' : path.basename(root)
+  const base = isHome ? 'Hermes' : path.basename(root)
+  // Aliases relabel non-home projects only; the 'Hermes' bucket is untouched.
+  const project = isHome ? base : applyProjectAlias(base)
   // Keep projectPath canonical too: the colony keys plots on (name, path),
   // so three spellings of home would be re-split into three plots downstream.
   const projectPath = isHome ? home : root
