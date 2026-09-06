@@ -163,3 +163,74 @@ export function solarReadout(solar) {
   if (solar.lastError) bits.push(solar.lastError)
   return { text, title: bits.join(' · '), stale: false }
 }
+
+// ── power statistics panel (1:1 HA displays, no inference) ────────────────────
+
+const DASH = '—'
+
+const fmtPanelW = (w) => (Number.isFinite(w) ? `${Math.round(w)} W` : DASH)
+const fmtPanelPct = (s) => (Number.isFinite(s) ? `${s} %` : DASH)
+
+/**
+ * Verbatim recorder samples, grouped per entity array exactly as HA returned
+ * them. Each entry keeps its own entity id (from its first tagged sample) and
+ * its raw numeric states in order — non-numeric states drop out, nothing is
+ * joined, sliced, sorted or aggregated. Absent/empty reads as [].
+ */
+export function powerHistorySeries(solar) {
+  const h = solar ? solar.history : undefined
+  if (!Array.isArray(h)) return []
+  const out = []
+  h.forEach((group, i) => {
+    if (!Array.isArray(group)) return
+    const tagged = group.find((s) => s && typeof s === 'object' && typeof s.entity_id === 'string')
+    const points = []
+    for (const s of group) {
+      const v = Number(s && typeof s === 'object' ? s.state : s)
+      if (Number.isFinite(v)) points.push(v)
+    }
+    if (points.length) out.push({ id: tagged ? tagged.entity_id : `series ${i + 1}`, points })
+  })
+  return out
+}
+
+/**
+ * Display-ready power statistics: every field is HA's own value formatted, or
+ * an em dash when fresh data has nothing usable. Stale/null payloads dash
+ * everything and carry the recorder note — the panel never fakes a number.
+ */
+export function powerPanel(solar) {
+  const fresh = isSolarFresh(solar)
+  const flow = batteryFlow(solar)
+  const flowWord =
+    flow === 'charge' ? 'charging' : flow === 'discharge' ? 'discharging' : flow === 'idle' ? 'idle' : null
+  const source = fresh ? solar.source : null
+  const series = fresh ? powerHistorySeries(solar) : []
+  return {
+    stale: !fresh,
+    source,
+    sourceLabel: source === 'solar' ? 'Solar' : source === 'battery' ? 'Battery' : source === 'grid' ? 'Grid' : DASH,
+    solarW: fresh ? fmtPanelW(solar.solarPowerW) : DASH,
+    soc: fresh ? fmtPanelPct(solar.batterySoC) : DASH,
+    batteryW: fresh
+      ? Number.isFinite(solar.batteryPowerW)
+        ? `${Math.round(solar.batteryPowerW)} W · ${flowWord}`
+        : DASH
+      : DASH,
+    flow,
+    flowLabel: flowWord ? flowWord[0].toUpperCase() + flowWord.slice(1) : DASH,
+    cutoff: fresh ? fmtPanelPct(solar.cutoff) : DASH,
+    cutIn: fresh ? fmtPanelPct(solar.cutIn) : DASH,
+    gridLine: source === 'grid' ? 'Grid connected' : source === 'solar' || source === 'battery' ? 'On own power' : DASH,
+    subline: fresh
+      ? solar.lastUpdatedAt
+        ? `live · updated ${new Date(solar.lastUpdatedAt).toLocaleTimeString()}`
+        : 'live'
+      : 'stale — showing neutral',
+    history: {
+      present: series.length > 0,
+      note: series.length > 0 ? null : 'no history from HA',
+      series,
+    },
+  }
+}

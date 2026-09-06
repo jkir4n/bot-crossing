@@ -6,6 +6,8 @@
  * missing payloads, null fields, the glint ceiling — and asserts the visuals land
  * exactly where the design matrix says: glint level, night-dim factor, HA clock
  * target, the one-line readout, and the power zone's fill/guard/glow/spin/flow helpers.
+ * The power statistics panel asserts through the same door: panel-state mapping
+ * (nulls to dashes, absent history to its quiet note) with spin/glow unchanged.
  *
  * Colony rule: pure display of HA facts. A null source is neutral, always — the
  * colony never infers a conserving state from discharge alone. History is a
@@ -27,6 +29,8 @@ import {
   turbineSpinning,
   batteryFlow,
   hasSolarHistory,
+  powerPanel,
+  powerHistorySeries,
   SOLAR_GLINT_FULL_W,
   SOLAR_BATTERY_DIM,
   SOLAR_DAY_TARGET,
@@ -245,6 +249,83 @@ zone('16. zone null payload (same neutral)', null, {
   flow: 'unknown',
   hasHistory: false,
 })
+
+// ── power statistics panel ───────────────────────────────────────────────────
+
+function panel(title, solar, expect) {
+  console.log(`\n${title}`)
+  const v = powerPanel(solar)
+  check('  stale', v.stale, expect.stale)
+  check('  sourceLabel', v.sourceLabel, expect.sourceLabel)
+  check('  solarW', v.solarW, expect.solarW)
+  check('  soc', v.soc, expect.soc)
+  check('  batteryW', v.batteryW, expect.batteryW)
+  check('  flowLabel', v.flowLabel, expect.flowLabel)
+  check('  cutoff', v.cutoff, expect.cutoff)
+  check('  cutIn', v.cutIn, expect.cutIn)
+  check('  gridLine', v.gridLine, expect.gridLine)
+  check('  subline', expect.stale ? v.subline : v.subline.startsWith('live'), expect.stale ? 'stale — showing neutral' : true)
+  check('  history.present', v.history.present, expect.present)
+  check('  history.note', v.history.note, expect.note)
+}
+
+panel('17. panel live (solar surplus, charging)', state({ solarPowerW: 1500, batteryPowerW: 400, batterySoC: 82, cutoff: 20, cutIn: 50, source: 'solar' }), {
+  stale: false, sourceLabel: 'Solar', solarW: '1500 W', soc: '82 %', batteryW: '400 W · charging',
+  flowLabel: 'Charging', cutoff: '20 %', cutIn: '50 %', gridLine: 'On own power', present: false, note: 'no history from HA',
+})
+
+panel('18. panel grid mode (mains, thresholds as HA reports them)', state({ isDay: false, solarPowerW: 0, batterySoC: 18, batteryPowerW: 0, cutoff: 20, cutIn: 50, source: 'grid' }), {
+  stale: false, sourceLabel: 'Grid', solarW: '0 W', soc: '18 %', batteryW: '0 W · idle',
+  flowLabel: 'Idle', cutoff: '20 %', cutIn: '50 %', gridLine: 'Grid connected', present: false, note: 'no history from HA',
+})
+
+panel('19. panel nulls render as em dashes, never NaN', state({ solarPowerW: null, batterySoC: null, batteryPowerW: null, cutoff: null, cutIn: null, source: null, isDay: null }), {
+  stale: false, sourceLabel: '—', solarW: '—', soc: '—', batteryW: '—',
+  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—', present: false, note: 'no history from HA',
+})
+
+panel('20. panel stale (everything neutral, recorder note)', state({ stale: true, lastUpdatedAt: 0, lastError: 'fetch failed' }), {
+  stale: true, sourceLabel: '—', solarW: '—', soc: '—', batteryW: '—',
+  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—', present: false, note: 'no history from HA',
+})
+
+panel('21. panel null payload (same neutral)', null, {
+  stale: true, sourceLabel: '—', solarW: '—', soc: '—', batteryW: '—',
+  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—', present: false, note: 'no history from HA',
+})
+
+console.log('\n22. panel history renders raw samples only')
+const histSolar = state({
+  solarPowerW: 1500, batteryPowerW: -60, batterySoC: 81, source: 'solar',
+  history: [
+    [
+      { entity_id: 'sensor.solar_power', state: '100', last_changed: 't0' },
+      { entity_id: 'sensor.solar_power', state: '200', last_changed: 't1' },
+      { entity_id: 'sensor.solar_power', state: '300', last_changed: 't2' },
+    ],
+    [
+      { entity_id: 'sensor.battery_soc', state: '80.5', last_changed: 't0' },
+      { entity_id: 'sensor.battery_soc', state: 'unavailable', last_changed: 't1' },
+      { entity_id: 'sensor.battery_soc', state: '81', last_changed: 't2' },
+    ],
+  ],
+})
+const pv = powerPanel(histSolar)
+check('  history.present', pv.history.present, true)
+check('  history.note', pv.history.note, null)
+check('  series count', pv.history.series.length, 2)
+check('  first id verbatim', pv.history.series[0].id, 'sensor.solar_power')
+check('  raw order, no averaging', JSON.stringify(pv.history.series[0].points), JSON.stringify([100, 200, 300]))
+check('  non-numeric drops out', JSON.stringify(pv.history.series[1].points), JSON.stringify([80.5, 81]))
+check('  history never moves the panel numbers', pv.solarW, '1500 W')
+check('  empty history array reads as no series', powerHistorySeries(state({ history: [] })).length, 0)
+check('  non-array history reads as no series', powerHistorySeries(state({ history: { samples: [] } })).length, 0)
+check('  absent history reads as no series', powerHistorySeries(state()).length, 0)
+// Spin/glow unchanged by the panel: same single HA source word, same answers.
+check('  glow on panel grid payload is on', rigGlowOn(state({ source: 'grid' })), true)
+check('  spin on panel grid payload turns', turbineSpinning(state({ source: 'grid' })), true)
+check('  glow on panel solar payload is dark', rigGlowOn(state({ source: 'solar' })), false)
+check('  spin on panel solar payload is still', turbineSpinning(state({ source: 'solar' })), false)
 
 // ── finer points ──────────────────────────────────────────────────────────────────────
 

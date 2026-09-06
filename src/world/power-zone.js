@@ -62,6 +62,8 @@ import {
 
 /** Amber, from the plot palette — reads as utility, and repos never take it. */
 export const POWER_ACCENT = 0xb8942a
+/** Plot id the click path matches on — never the display name. */
+export const POWER_PLOT_ID = 'power-zone'
 /** Construction seed: the yard is laid out the same on every reload. */
 const YARD_SEED = 20260906
 /** Rig glow: steady POWER_ACCENT emissive while HA names grid. Calm, no pulse. */
@@ -126,7 +128,7 @@ export class PowerZone {
     // the legend, the sidebar, the layout file, or the badge system. Its
     // seeded clutter comes off: the fence below dresses the kerb already, and
     // two scatter systems on one tile would stack crates inside the array.
-    this.plot = new Plot({ id: 'power-zone', name: 'Power', index: -1, cells: [POWER_CELL], accent: POWER_ACCENT })
+    this.plot = new Plot({ id: POWER_PLOT_ID, name: 'Power', index: -1, cells: [POWER_CELL], accent: POWER_ACCENT })
     if (this.plot.clutter) {
       this.plot.group.remove(this.plot.clutter)
       this.plot.clutter.geometry.dispose()

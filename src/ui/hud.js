@@ -3,6 +3,8 @@ import { PLANETS } from '../world/planet.js'
 import { TIMES } from '../world/sky.js'
 import { STATUS_LABEL } from '../game/colony.js'
 import { presenceChip, presenceClass, presenceNote, presenceSig, remotePresence } from './remote-presence.js'
+import { powerPanel } from '../game/solar.js'
+import { POWER_ACCENT } from '../world/power-zone.js'
 import { FACE, FRAME_COLS, FRAME_ROWS } from '../agents/faces.js'
 
 /**
@@ -380,6 +382,8 @@ export class Hud {
     on('#btn-copy-path', 'click', () => this.actions.copyProjectPath?.())
     on('#btn-locate', 'click', () => this.actions.focusProject?.(this.project?.name))
     on('#btn-close-project', 'click', () => this.actions.closeProject?.())
+    on('#btn-close-power', 'click', () => this.actions.closePower?.())
+    on('#btn-locate-power', 'click', () => this.actions.focusPower?.())
     on('.help', 'click', (e) => {
       if (e.target === this.$('.help')) this.toggleHelp(false)
     })
@@ -559,6 +563,69 @@ export class Hud {
     // often is how a HUD starts costing frames.
     this._cardSize = { w: card.offsetWidth, h: card.offsetHeight }
     this.$('#btn-open').disabled = thread.canOpen === false
+  }
+
+  /**
+   * The power statistics panel: the same sidebar slot as a drilled repo, fed by
+   * the colony's /api/solar cache. One pane at a time — opening this never
+   * stacks over a repo detail, and closing it lands back on the repo list.
+   */
+  setPowerOpen(open) {
+    this._powerOpen = Boolean(open)
+    this.$('.side').classList.toggle('power', this._powerOpen)
+    this.setPower(this._powerSolar)
+  }
+
+  /**
+   * Live energy state into the power pane. Renders display strings from the
+   * pure powerPanel mapper (nulls already dashes there) plus one raw
+   * dot-to-dot sparkline per recorder entity array — no totals, no kWh math.
+   */
+  setPower(solar) {
+    this._powerSolar = solar && typeof solar === 'object' ? solar : null
+    const view = powerPanel(this._powerSolar)
+    const histSig = view.history.series
+      .map((s) => `${s.id}:${s.points.length}:${s.points[s.points.length - 1]}`)
+      .join('|')
+    const signature =
+      `${this._powerOpen ? 1 : 0}~${view.stale}~${view.sourceLabel}~${view.solarW}~${view.soc}~` +
+      `${view.batteryW}~${view.gridLine}~${view.cutoff}~${view.cutIn}~${view.subline}~${histSig}`
+    if (this._last.power === signature) return
+    this._last.power = signature
+
+    const swatch = this.$('.power-detail .who .swatch')
+    swatch.style.background = hex(POWER_ACCENT)
+    swatch.style.color = hex(POWER_ACCENT) // the halo is `currentColor`
+    this.$('.power-detail .name').textContent = 'Power'
+    this.$('.power-detail .power-sub').textContent = view.subline
+    this.$('.power-detail .power-sub').title = view.stale ? 'Solar data stale — scene is showing the neutral look' : view.subline
+
+    const rows = [
+      ['Source', view.sourceLabel],
+      ['Solar', view.solarW],
+      ['Battery', view.soc],
+      ['Battery power', view.batteryW],
+      ['Grid', view.gridLine],
+      ['Cutoff', view.cutoff],
+      ['Cut-in', view.cutIn],
+    ]
+    this.$('.power-detail .power-rows').innerHTML = rows
+      .map(([k, v]) => `<div class="power-row"><span class="k">${k}</span><span class="v">${escapeHtml(v)}</span></div>`)
+      .join('')
+
+    const trend = this.$('.power-detail .power-trend')
+    if (!view.history.present) {
+      trend.innerHTML = `<div class="power-note">${escapeHtml(view.history.note)}</div>`
+      return
+    }
+    trend.innerHTML = view.history.series
+      .map(
+        (s) =>
+          `<div class="power-series" style="color:${hex(POWER_ACCENT)}">` +
+          `<div class="sid" title="${escapeHtml(s.id)}">${escapeHtml(s.id)} · ${s.points.length} samples</div>` +
+          `${sparkline(s.points)}</div>`
+      )
+      .join('')
   }
 
   /**
@@ -791,6 +858,35 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 }
 
+/**
+ * A raw dot-to-dot line over verbatim recorder samples — the line itself is the
+ * only interpolation. No axes, no totals: the entity id and sample count label it.
+ */
+function sparkline(points) {
+  const w = 100
+  const h = 28
+  const pad = 3
+  const fmt = (n) => String(Math.round(n * 10) / 10)
+  let inner
+  if (points.length === 1) {
+    inner = `<circle cx="${w / 2}" cy="${h / 2}" r="2.5"/>`
+  } else {
+    let min = points[0]
+    let max = points[0]
+    for (const v of points) {
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+    const span = max - min || 1
+    const step = (w - pad * 2) / (points.length - 1)
+    const pts = points
+      .map((v, i) => `${fmt(pad + i * step)},${fmt(h - pad - ((v - min) / span) * (h - pad * 2))}`)
+      .join(' ')
+    inner = `<polyline points="${pts}" vector-effect="non-scaling-stroke"/>`
+  }
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${inner}</svg>`
+}
+
 /** Status → the colour family the top-bar counters already use for it. */
 function statusClass(status) {
   if (status === 'working') return 'working'
@@ -889,6 +985,21 @@ const TEMPLATE = `
       </div>
       <div class="threads-head"></div>
       <div class="threads"></div>
+    </div>
+
+    <div class="power-detail">
+      <button class="btn ghost back" id="btn-close-power" title="Back to every repo (Esc)">${ICON.back} All repos</button>
+      <div class="who">
+        <i class="swatch"></i>
+        <div class="text">
+          <div class="name">Power</div>
+          <div class="path power-sub"></div>
+        </div>
+        <button class="btn icon ghost" id="btn-locate-power" title="Fly to the power zone">${ICON.locate}</button>
+      </div>
+      <div class="power-rows"></div>
+      <div class="threads-head"><span>Trend · HA recorder</span></div>
+      <div class="power-trend"></div>
     </div>
   </div>
 </aside>

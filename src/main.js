@@ -4,6 +4,7 @@ import { DEFAULT_PRESET, Settings, hasStoredSettings } from './core/settings.js'
 import { Engine } from './core/engine.js'
 import { CameraRig } from './core/camera.js'
 import { Colony, STATUS_LABEL, STATUS_ORDER, statusFor, transcriptProgress } from './game/colony.js'
+import { POWER_PLOT_ID } from './world/power-zone.js'
 import { projectSeenStamp } from './ui/remote-presence.js'
 import { Hud } from './ui/hud.js'
 import { PLANETS } from './world/planet.js'
@@ -63,6 +64,8 @@ let lastLayout = ''
 let selectedId = null
 /** Which zone's sidebar is open. A repo, not a thread — they outlive the threads on them. */
 let selectedProject = null
+/** The power statistics panel, open exclusive with repos and threads. */
+let selectedPower = false
 let hoverId = null
 let statusCursor = 0
 let pendingSave = 0
@@ -135,6 +138,16 @@ const actions = {
     selectedProject = null
     select(null, {})
     syncProject()
+  },
+
+  /** Back out of the power panel to the list of all repos. */
+  closePower: () => closePower(),
+
+  /** Fly to the power zone's tile. */
+  focusPower: () => {
+    const plot = colony.powerZone?.plot
+    if (!plot) return
+    rig.focus(plot.middle || plot.center, { distance: 30 })
   },
 
   select: (id) => select(id, {}),
@@ -254,6 +267,7 @@ function select(id, { fly = false } = {}) {
   const thread = threads.find((t) => t.id === id) || agent.thread
   hud.setSelection(agent, thread)
   // Picking somebody is also picking the zone they are standing on: the sidebar follows.
+  if (selectedPower) closePower()
   if (thread?.project && colony.plots.has(thread.project)) selectedProject = thread.project
   syncProject()
   if (fly) {
@@ -264,11 +278,35 @@ function select(id, { fly = false } = {}) {
 /** Open a zone's sidebar. Any selected astronaut from a different zone lets go. */
 function selectProject(name, { fly = false } = {}) {
   if (!name || !colony.plots.has(name)) return
+  closePower()
   selectedProject = name
   const current = threads.find((t) => t.id === selectedId)
   if (current && current.project !== name) select(null, {})
   else syncProject()
   if (fly) actions.focusProject(name)
+}
+
+/**
+ * Open the power zone's statistics panel. Exclusive with repos and threads:
+ * the sidebar shows one pane, so picking power lets go of both.
+ */
+function selectPower({ fly = false } = {}) {
+  selectedPower = true
+  selectedId = null
+  colony.astronauts.setSelected(null)
+  hud.setSelection(null, null)
+  selectedProject = null
+  hud.setProject(null)
+  hud.setPower(colony.solar)
+  hud.setPowerOpen(true)
+  if (fly) actions.focusPower()
+}
+
+/** Back out of the power panel to the list of all repos. The panel itself never leaves. */
+function closePower() {
+  if (!selectedPower) return
+  selectedPower = false
+  hud.setPowerOpen(false)
 }
 
 /**
@@ -438,10 +476,13 @@ engine.canvas.addEventListener('pointerup', (e) => {
   // Nobody there: a zone's deck or its name plate opens that repo's sidebar instead, and
   // bare ground puts everything down.
   const plot = plotUnder(e, p)
-  if (plot) selectProject(plot.name, {})
-  else {
+  if (plot) {
+    if (plot.id === POWER_PLOT_ID) selectPower({})
+    else selectProject(plot.name, {})
+  } else {
     select(null, {})
     actions.closeProject()
+    closePower()
   }
 })
 
@@ -539,10 +580,11 @@ window.addEventListener('keydown', (e) => {
     case '_':
       rig.desiredDistance = Math.min(150, rig.desiredDistance * 1.22)
       break
-    // One step at a time, outward: the thread, then the zone it belongs to.
+    // One step at a time, outward: the thread, then the power panel, then the zone it belongs to.
     case 'Escape':
       if (document.querySelector('.help.open')) hud.toggleHelp(false)
       else if (selectedId) select(null, {})
+      else if (selectedPower) closePower()
       else if (selectedProject) actions.closeProject()
       break
   }
@@ -619,6 +661,7 @@ async function pollSolar() {
   } catch {
     colony.setSolar(null)
   } finally {
+    hud.setPower(colony.solar)
     solarPolling = false
   }
 }
