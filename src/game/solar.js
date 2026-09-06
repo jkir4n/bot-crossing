@@ -142,6 +142,70 @@ export function beaconBrightness(solar, t) {
   return beaconLevel(beaconPattern(solar), t)
 }
 
+// ── mast beacon seat (rig-composer pack units) ─────────────────────────────
+//
+// Measured from public/assets/spacebase.glb — every kit node there is
+// unrotated at unit scale, so the packed frames ARE the composer's. The low
+// mast stands 2.0..2.5 on the structure roof plane (a 0.65 cap), and its fan
+// carries twin discs at z ±0.45 reaching 0.575 about the hub at 2.89. The
+// old roof-corner seat (0.72, 2.06, -0.72) sat 0.26 clear of the nearest
+// steel: the structure top (±0.60) leaves no ring beside the mast base
+// (±0.57) to stand on, and the "widest face" bounds lied — per-axis maxima
+// are the base flare, not steel at the lamp's height. Triangle-level probing
+// finds the truth: the mast's +x face runs flat at x ≈ 0.40 across
+// y 2.08..2.20, so the lamp head sits inner-face flush ON that plate, below
+// the sweep, on the default (+x+z) camera's side. No arm, no standoff.
+
+/**
+ * Vertex-measured mast numbers the seat below is checked against. Rotor
+ * floor is hub minus blade reach; the seat face is the mast's flat +x plate
+ * under the lamp, from triangle-level probing of the packed glb.
+ */
+export const MAST_GEOMETRY = {
+  roofY: 2.0,
+  towerTopY: 2.5,
+  faceXAtSeat: 0.4,
+  hubY: 2.89,
+  bladeReach: 0.575,
+  rotorBottomY: 2.315,
+}
+
+/**
+ * The lamp head per rig: one 0.12 cube, inner face flush on the mast's +x
+ * plate. Pack units in the rig composer's frame — the renderer scales by
+ * BUILDING_SCALE, the same space the rig composes in.
+ */
+export const BEACON_SEAT = {
+  head: { x: 0.46, y: 2.14, z: 0, size: 0.12 },
+}
+
+/**
+ * True when a lamp seat is visibly attached and rotor-clear: the head's
+ * inner face sits on the mast plate (a graze reads as mounted; air reads as
+ * floating), the head hangs on the mast body between roof and tower top,
+ * whole below the rotor sweep and outside the swept cylinder.
+ */
+export function isBeaconSeated(seat = BEACON_SEAT, mast = MAST_GEOMETRY) {
+  if (!seat || !mast || typeof seat !== 'object' || typeof mast !== 'object') return false
+  const { head } = seat
+  if (!head || typeof head !== 'object') return false
+  const nums = [head.x, head.y, head.z, head.size,
+    mast.roofY, mast.towerTopY, mast.faceXAtSeat, mast.hubY, mast.bladeReach, mast.rotorBottomY]
+  if (!nums.every(Number.isFinite)) return false
+  if (head.size <= 0) return false
+  const inner = head.x - head.size / 2
+  const top = head.y + head.size / 2
+  const bottom = head.y - head.size / 2
+  const mounted =
+    Math.abs(inner - mast.faceXAtSeat) <= 0.02 &&
+    bottom > mast.roofY &&
+    top < mast.towerTopY
+  const clear =
+    top < mast.rotorBottomY &&
+    Math.hypot(inner, top - mast.hubY) > mast.bladeReach
+  return mounted && clear
+}
+
 /** Which way energy is flowing through the battery, from its meter sign only. */
 export function batteryFlow(solar) {
   if (!isSolarFresh(solar)) return 'unknown'
@@ -153,19 +217,40 @@ export function batteryFlow(solar) {
 }
 
 /**
- * Which battery block carries the faint travelling flow step at `t` seconds,
- * west-to-east index (0-based) over `blocks` — or -1 for none. Discharge
- * walks toward the colony (west->east), charge walks back east->west, and
- * idle/unknown/stale/null show no step at all. One 1.4 s step per block, so
- * a full crossing takes 5.6 s: deliberately slower than the mast beacon.
+ * Which battery block carries the activity cue at the current reading:
+ * west-to-east index (0-based) over `blocks`, or -1 for none. The cue sits
+ * on the flow boundary — while charging the first unlit block fills next,
+ * while discharging the last lit block drains — so exactly one block is ever
+ * active. Idle, unknown, stale and null readings have no boundary in motion
+ * and read -1: the row sits static.
  */
-export function flowPulseIndex(solar, t, blocks = 4) {
+export function activeBlockIndex(solar, blocks = 4) {
   if (!Number.isInteger(blocks) || blocks <= 0) return -1
   const flow = batteryFlow(solar)
   if (flow !== 'charge' && flow !== 'discharge') return -1
-  if (!Number.isFinite(t)) return -1
-  const step = Math.floor(Math.max(0, t) / 1.4) % blocks
-  return flow === 'discharge' ? step : blocks - 1 - step
+  const lit = batteryLitCount(solar, blocks)
+  return flow === 'charge' ? Math.min(lit, blocks - 1) : Math.max(lit - 1, 0)
+}
+
+/**
+ * Activity glow 0..1 for the active block at `t` seconds. Discharge blinks
+ * slow and deep (readable as giving out power); charge breathes shallow
+ * around a bright seat, distinct from discharge at a glance. Idle, unknown,
+ * stale, null and clockless readings hold 0 — the renderer leaves the row
+ * static, never guessed.
+ */
+export function batteryActivityLevel(solar, t) {
+  if (!Number.isFinite(t)) return 0
+  const flow = batteryFlow(solar)
+  if (flow === 'discharge') {
+    const ph = ((Math.max(0, t) % 3.0) + 3.0) % 3.0
+    return 0.15 + 0.85 * (0.5 - 0.5 * Math.cos((2 * Math.PI * ph) / 3.0))
+  }
+  if (flow === 'charge') {
+    const ph = ((Math.max(0, t) % 5.6) + 5.6) % 5.6
+    return 0.7 + 0.3 * (0.5 - 0.5 * Math.cos((2 * Math.PI * ph) / 5.6))
+  }
+  return 0
 }
 
 /**

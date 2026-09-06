@@ -17,7 +17,9 @@ import {
   turbineSpinning,
   batteryFlow,
   beaconBrightness,
-  flowPulseIndex,
+  activeBlockIndex,
+  batteryActivityLevel,
+  BEACON_SEAT,
 } from '../game/solar.js'
 
 /**
@@ -44,10 +46,12 @@ import {
  *                bank IS the gauge, so four batteries read as one row. Block
  *                i (west to east) lights for its quartile, one per 25 % SoC,
  *                brighter while charging; at or under HA's cutoff the row
- *                dims and the empty blocks carry a faint guard glow. A faint
- *                flow step travels the row in the current's direction —
- *                west->east on discharge, back on charge, none on idle or
- *                unknown — slower than the mast lamps, same accent.
+ *                dims and the empty blocks carry a faint guard glow. The
+ *                flow boundary alone carries an activity cue, same accent:
+ *                the draining block blinks slow and deep on discharge, the
+ *                filling block sits bright with a shallow breathe on charge,
+ *                and idle holds a soft static glow — one block, never a
+ *                travelling pulse.
  *   rigs         two `drill_structure` + `drill_module` bases, each with a
  *                `windturbine_low` mast on its roof and that mast's fan on
  *                top — one composite silhouette each, same recipe twice. Grid
@@ -55,11 +59,12 @@ import {
  *                POWER_ACCENT emissive AND its fan turns, both if and only if
  *                HA names grid — dark and still on solar, battery, null,
  *                stale. No second behavior, no fake states. Each rig also
- *                carries one mast lamp (a tiny emissive block on the roof
- *                beside the mast — the pack's `lights` node is a full 1 m
- *                lamp post and composes poorly up there): grid double-flash,
- *                battery slow pulse, solar steady glow, dark otherwise. One
- *                shared material, so both lamps blink in sync.
+ *                carries one mast lamp flush on the mast's +x plate, head
+ *                whole below the fan sweep (the pack's `lights` node
+ *                is a full 1 m lamp post and composes poorly up there):
+ *                grid double-flash, battery slow pulse, solar steady glow,
+ *                dark otherwise. One shared material, so both lamps blink
+ *                in sync.
  *   fence        containers / cargodepot / lights ringing the kerb as scenery
  *
  * Clearances were measured from the glb's own bounding boxes in scene units
@@ -69,7 +74,7 @@ import {
  *
  * Town night lighting stays full bright on every source — no source-based
  * dimming anywhere. The rigs' glow, the bank's fill, the mast lamps, the
- * flow step and the panel glint are the only power story in the colony.
+ * activity cue and the panel glint are the only power story in the colony.
  *
  * Pure display throughout: every target derives from the SolarState via
  * src/game/solar.js. The recorder payload (`history`) is accepted and ignored —
@@ -87,16 +92,17 @@ const RIG_GLOW = 0.9
 /** Mast lamp peak emissive — night-visible but subtle, below the bank's charge glare. */
 const BEACON_PEAK = 1.8
 /**
- * Mast lamp seat in rig-composer pack units: on the structure roof plane
- * (y 2.0) beside the mast base, aft corner. Measured against the glb's own
- * boxes: the fan blades sweep |x| < 0.6 about the hub, so x 0.72 stands
- * clear of the disc with room to spare, and the 0.12 block sits grounded on
- * the roof — no float, no clip.
+ * Mast lamp seat, from BEACON_SEAT in src/game/solar.js (rig-composer pack
+ * units, same space the rig composes in): the head sits inner-face flush on
+ * the mast's flat +x plate, whole below the fan sweep. Probed at triangle
+ * level against the glb's own steel — mounted, never floating.
+ * tools/verify-power-nodes re-checks the seat against the packed triangles
+ * at build time.
  */
-const BEACON_AT = { x: 0.72, y: 2.06, z: -0.72 }
-const BEACON_SIZE = 0.12
-/** Flow step: faint extra emissive on the travelling block, same accent. */
-const FLOW_BUMP = 0.5
+/** Flow cue gain: discharge blinks deep, charge sits bright and breathes shallow. */
+const DISCHARGE_BLINK_GAIN = 1.1
+const CHARGE_SEAT_BONUS = 0.3
+const CHARGE_BREATHE_GAIN = 0.4
 /** Roof plane of the drill structure in pack units — the mast stands on it. */
 const TOWER_Y = 2.0
 /** Hub height of the low turbine mast, as modelled (matches the town recipe). */
@@ -159,7 +165,7 @@ export class PowerZone {
     // names grid.
     this._rigClock = { value: 0 }
     this._rigTime = 0
-    this._bank = { lit: -1, intensity: -1, guard: null, pulse: -2 }
+    this._bank = { key: null }
     this._dimmed = null
 
     // The ground: a one-cell Plot that belongs to no repo, so it never enters
@@ -190,10 +196,10 @@ export class PowerZone {
       rig.mesh.material.emissiveIntensity = 0
     }
 
-    // Mast lamps: one tiny emissive block per rig, both children of their
-    // rig mesh so they ride it, sharing ONE material so the two lamps blink
-    // as one. Plain material, like the bank blocks — no atlas, no reveal
-    // shader, nothing to leak onto the town.
+    // Mast lamps: one head per rig, both children of their rig mesh so they
+    // ride it, sharing ONE material so the two lamps blink as one. Plain
+    // material, like the bank blocks — no atlas, no reveal shader, nothing
+    // to leak onto the town.
     this._beaconMat = new THREE.MeshStandardMaterial({
       color: 0x111111,
       roughness: 0.6,
@@ -201,10 +207,11 @@ export class PowerZone {
       emissive: POWER_ACCENT,
       emissiveIntensity: 0,
     })
-    this._beaconGeo = new THREE.BoxGeometry(BEACON_SIZE * BUILDING_SCALE, BEACON_SIZE * BUILDING_SCALE, BEACON_SIZE * BUILDING_SCALE)
+    const headSize = BEACON_SEAT.head.size * BUILDING_SCALE
+    this._beaconGeo = new THREE.BoxGeometry(headSize, headSize, headSize)
     for (const rig of [this.rig, this.rig2]) {
       const lamp = new THREE.Mesh(this._beaconGeo, this._beaconMat)
-      lamp.position.set(BEACON_AT.x * BUILDING_SCALE, BEACON_AT.y * BUILDING_SCALE, BEACON_AT.z * BUILDING_SCALE)
+      lamp.position.set(BEACON_SEAT.head.x * BUILDING_SCALE, BEACON_SEAT.head.y * BUILDING_SCALE, BEACON_SEAT.head.z * BUILDING_SCALE)
       rig.mesh.add(lamp)
     }
 
@@ -385,21 +392,27 @@ export class PowerZone {
     if (Math.abs(this._glint) < 0.001) this._glint = 0
     this.array.uniforms.uGlint.value = this._glint
 
-    // Battery row: fill quartiles west to east, flow brightness, cutoff guard,
-    // plus the travelling flow step on top — faint, same accent.
+    // Battery row: fill quartiles west to east, flow brightness, cutoff
+    // guard — plus the activity cue on the flow boundary alone. Discharge
+    // blinks the draining block slow and deep; charge seats the filling
+    // block bright with a shallow breathe; idle holds a soft static glow.
     const flow = batteryFlow(this.solar)
     const guard = batteryBelowCutoff(this.solar)
     const lit = batteryLitCount(this.solar, BANK_BLOCKS)
     const intensity = flow === 'charge' ? 2.0 : flow === 'idle' ? 1.6 : 1.2
-    const pulse = flowPulseIndex(this.solar, elapsed, BANK_BLOCKS)
-    const g = this._bank
-    if (g.lit !== lit || g.intensity !== intensity || g.guard !== guard || g.pulse !== pulse) {
-      this._bank = { lit, intensity, guard, pulse }
+    const active = activeBlockIndex(this.solar, BANK_BLOCKS)
+    const baseFor = (i) => (i < lit ? intensity : guard ? 0.35 : 0)
+    const key = `${lit}|${intensity}|${guard}|${active}`
+    if (this._bank.key !== key) {
+      this._bank.key = key
       this.bankBlocks.forEach((mesh, i) => {
-        let e = i < lit ? intensity : guard ? 0.35 : 0
-        if (i === pulse) e += FLOW_BUMP
-        mesh.material.emissiveIntensity = e
+        mesh.material.emissiveIntensity = baseFor(i)
       })
+    }
+    if (active >= 0) {
+      const level = batteryActivityLevel(this.solar, elapsed)
+      const bump = flow === 'discharge' ? DISCHARGE_BLINK_GAIN * level : CHARGE_SEAT_BONUS + CHARGE_BREATHE_GAIN * level
+      this.bankBlocks[active].material.emissiveIntensity = baseFor(active) + bump
     }
     if (this._dimmed !== guard) {
       this._dimmed = guard

@@ -7,7 +7,8 @@
  * exactly where the design matrix says: glint level, HA clock
  * target, the one-line readout, and the power zone's fill/lit-count/guard/glow/spin/flow helpers.
  * The mast-lamp beacon asserts through the same door: one pattern per source word,
- * the rhythm pinned per pattern, and the travelling flow step pinned per current.
+ * the rhythm pinned per pattern, the active-block cue pinned per current, and the
+ * lamp seat checked attached to the mast and clear of the rotor.
  * The power statistics panel asserts through the same door: live-state mapping
  * (nulls to dashes) with spin/glow unchanged. The panel renders live rows only —
  * recorder history stays a backend passthrough the panel never reads.
@@ -34,7 +35,11 @@ import {
   beaconPattern,
   beaconLevel,
   beaconBrightness,
-  flowPulseIndex,
+  activeBlockIndex,
+  batteryActivityLevel,
+  BEACON_SEAT,
+  MAST_GEOMETRY,
+  isBeaconSeated,
   hasSolarHistory,
   powerPanel,
   powerHistorySeries,
@@ -408,20 +413,42 @@ check('solar payload glows end to end', beaconBrightness(state({ source: 'solar'
 check('stale payload never lights end to end', beaconBrightness(state({ source: 'grid', stale: true }), 0.05), 0)
 check('null payload never lights end to end', beaconBrightness(null, 0.05), 0)
 
-console.log('\n25. flow pulse walks the row with the current (discharge west->east, charge back)')
-check('discharge starts west', flowPulseIndex(state({ batteryPowerW: -300, source: 'battery' }), 0), 0)
-check('discharge steps east', flowPulseIndex(state({ batteryPowerW: -300, source: 'battery' }), 1.5), 1)
-check('discharge reaches far east', flowPulseIndex(state({ batteryPowerW: -300, source: 'battery' }), 4.3), 3)
-check('discharge wraps to west', flowPulseIndex(state({ batteryPowerW: -300, source: 'battery' }), 5.7), 0)
-check('charge starts east', flowPulseIndex(state({ batteryPowerW: 400, source: 'solar' }), 0), 3)
-check('charge steps west', flowPulseIndex(state({ batteryPowerW: 400, source: 'solar' }), 1.5), 2)
-check('charge reaches far west', flowPulseIndex(state({ batteryPowerW: 400, source: 'solar' }), 4.3), 0)
-check('idle shows no step', flowPulseIndex(state({ batteryPowerW: 0, source: 'grid' }), 1.5), -1)
-check('null watts show no step', flowPulseIndex(state({ batteryPowerW: null }), 1.5), -1)
-check('stale shows no step', flowPulseIndex(state({ batteryPowerW: -300, stale: true }), 0.5), -1)
-check('null payload shows no step', flowPulseIndex(null, 0.5), -1)
-check('no clock shows no step', flowPulseIndex(state({ batteryPowerW: -300 }), Number.NaN), -1)
-check('empty row shows no step', flowPulseIndex(state({ batteryPowerW: -300 }), 1.5, 0), -1)
+console.log('\n25. activity cue sits on the flow boundary alone (charge: first unlit, discharge: last lit)')
+check('discharge at 55% drains block 1 (lit 2)', activeBlockIndex(state({ batteryPowerW: -300, batterySoC: 55, source: 'battery' })), 1)
+check('discharge full drains the far east block', activeBlockIndex(state({ batteryPowerW: -300, batterySoC: 100, source: 'battery' })), 3)
+check('discharge empty still names block 0 (clamped)', activeBlockIndex(state({ batteryPowerW: -300, batterySoC: 5, source: 'battery' })), 0)
+check('charge at 50% fills block 2 (lit 2)', activeBlockIndex(state({ batteryPowerW: 400, batterySoC: 50, source: 'solar' })), 2)
+check('charge full breathes on block 3 (clamped)', activeBlockIndex(state({ batteryPowerW: 400, batterySoC: 100, source: 'solar' })), 3)
+check('charge empty fills block 0', activeBlockIndex(state({ batteryPowerW: 400, batterySoC: 0, source: 'solar' })), 0)
+check('idle names no block (static row)', activeBlockIndex(state({ batteryPowerW: 0, source: 'grid' })), -1)
+check('null watts name no block', activeBlockIndex(state({ batteryPowerW: null })), -1)
+check('stale names no block', activeBlockIndex(state({ batteryPowerW: -300, stale: true })), -1)
+check('null payload names no block', activeBlockIndex(null), -1)
+check('empty row names no block', activeBlockIndex(state({ batteryPowerW: -300 }), 0), -1)
+
+console.log('\n26. activity waveforms: discharge blinks deep and slow, charge breathes shallow and bright')
+check('discharge rests low at phase 0', batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 0), 0.15)
+check('discharge peaks mid-beat', Math.abs(batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 1.5) - 1) < 1e-9, true)
+check('discharge wraps to rest', batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 3.0), 0.15)
+check('charge rests high at phase 0', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 0), 0.7)
+check('charge breathes to full mid-beat', Math.abs(batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 2.8) - 1) < 1e-9, true)
+check('charge wraps to rest', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 5.6), 0.7)
+check('charge never dips to the discharge floor', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 0) > batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 0), true)
+check('idle holds level (no blink)', batteryActivityLevel(state({ batteryPowerW: 0, source: 'grid' }), 1.5), 0)
+check('null watts hold level', batteryActivityLevel(state({ batteryPowerW: null }), 1.5), 0)
+check('stale holds level', batteryActivityLevel(state({ batteryPowerW: -300, stale: true }), 0.5), 0)
+check('null payload holds level', batteryActivityLevel(null, 0.5), 0)
+check('no clock holds level', batteryActivityLevel(state({ batteryPowerW: -300 }), Number.NaN), 0)
+
+console.log('\n27. beacon seat sits flush on the mast plate, whole head below the sweep')
+check('rotor floor is hub minus blade reach', Math.abs(MAST_GEOMETRY.rotorBottomY - (MAST_GEOMETRY.hubY - MAST_GEOMETRY.bladeReach)) < 1e-9, true)
+check('shipped seat is attached and rotor-clear', isBeaconSeated(BEACON_SEAT), true)
+check('shipped seat passes against the shipped mast', isBeaconSeated(BEACON_SEAT, MAST_GEOMETRY), true)
+check('head lifted into the sweep fails', isBeaconSeated({ head: { ...BEACON_SEAT.head, y: 2.3 } }), false)
+check('head off the plate fails (floating lamp)', isBeaconSeated({ head: { ...BEACON_SEAT.head, x: 0.8 } }), false)
+check('head sunk under the roof fails', isBeaconSeated({ head: { ...BEACON_SEAT.head, y: 1.9 } }), false)
+check('head swallowed by the mast fails', isBeaconSeated({ head: { ...BEACON_SEAT.head, x: 0.36 } }), false)
+check('null seat fails', isBeaconSeated(null), false)
 
 console.log(`\n${checks - failures}/${checks} checks passed`)
 if (failures) {
