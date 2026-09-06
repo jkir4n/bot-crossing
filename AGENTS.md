@@ -29,7 +29,7 @@
 
 ## Verified local facts (live probes, Sep 2026)
 
-- OpenCode store: `/home/hermes/.local/share/opencode/opencode.db` (SQLite) —
+- OpenCode store: `~/.local/share/opencode/opencode.db` (SQLite) —
   `session(id, project_id, directory, title, model, agent, tokens_*, cost,
   time_created/updated/archived, …)`. Adapter = one SQL query. (Local copy had
   0 session rows; schema is what matters.)

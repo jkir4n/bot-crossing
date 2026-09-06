@@ -1,3 +1,7 @@
+## [Unreleased] — hygiene audit
+- Audit follow-up: systemd example unit now uses `%h` (systemd home specifier) instead of a
+  personal absolute path; AGENTS.md home paths generalized to `~/`. No machine names, IPs,
+  SSH usernames, drive paths, or credentials anywhere in tracked files.
 # Changelog — Bot Crossing Colony
 
 ## 2026-09-05 — Cursor adapter live, ghost prunes, four harnesses serving

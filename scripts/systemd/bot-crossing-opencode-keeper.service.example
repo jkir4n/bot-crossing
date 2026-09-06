@@ -5,11 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/hermes/bot-crossing
+WorkingDirectory=%h/bot-crossing
 # Copy this template to ~/.config/systemd/user/bot-crossing-opencode-keeper.service
 # and set the real target there (operator environment — never the repo):
 Environment=OPENCODE_SSH_TARGET=user@winpc-lan
-ExecStart=/home/hermes/bot-crossing/scripts/opencode-keeper.sh
+ExecStart=%h/bot-crossing/scripts/opencode-keeper.sh
 Restart=always
 RestartSec=10
 
