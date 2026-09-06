@@ -14,7 +14,7 @@ import {
   solarDimFactor,
   batteryFillLevel,
   batteryBelowCutoff,
-  turbineSpinning,
+  rigGlowOn,
   batteryFlow,
 } from '../game/solar.js'
 
@@ -33,8 +33,9 @@ import {
  *                it lights one quartile per 25 % SoC, brighter while charging;
  *                at or under HA's cutoff the bank dims and the empty blocks
  *                carry a faint guard glow
- *   power station a `windturbine_tall` whose fan turns if and only if HA names
- *                grid as the source — still air on solar, battery, null, stale
+ *   power station a `drill_structure` + `drill_module` rig whose emissive
+ *                glows steady if and only if HA names grid as the source —
+ *                dark on solar, battery, null, stale. No motion.
  *   fence        containers / cargodepot / lights ringing the kerb as scenery
  *
  * Pure display throughout: every target derives from the SolarState via
@@ -46,10 +47,8 @@ import {
 export const POWER_ACCENT = 0xb8942a
 /** Construction seed: the yard is laid out the same on every reload. */
 const YARD_SEED = 20260906
-/** The tall mast's hub height in pack units (matches the antenna recipe). */
-const TALL_HUB = 2.05
-/** Fan cruise: a calm turn, matched to the shader-driven masts in town. */
-const FAN_RATE = 0.22
+/** Rig glow: steady POWER_ACCENT emissive while HA names grid. Calm, no pulse. */
+const RIG_GLOW = 0.9
 /** Gauge blocks: one per quartile. */
 const GAUGE_BLOCKS = 4
 
@@ -57,8 +56,8 @@ const GAUGE_BLOCKS = 4
 export const POWER_NODES = [
   'solarpanel',
   'basemodule_C',
-  'windturbine_tall',
-  'windturbine_tall_fan',
+  'drill_structure',
+  'drill_module',
   'cargodepot_A',
   'containers_A',
   'containers_B',
@@ -74,11 +73,13 @@ export class PowerZone {
     for (const name of POWER_NODES) {
       if (!hasPart(name)) throw new Error(`power-zone: kit has no part named "${name}"`)
     }
-    // The mast is taken solo (tower without its rotor) — probe that registry too.
-    part('windturbine_tall', 'base', { solo: true }).dispose()
+    // The rig's module rides at its modelled offset above the structure base.
+    part('drill_structure', 'base', { solo: true }).dispose()
+    part('drill_module').dispose()
 
     this.solar = null
     this._glint = 0
+    this._rigGlow = 0
     this._gauge = { lit: -1, intensity: -1, guard: null }
     this._dimmed = null
 
@@ -99,16 +100,13 @@ export class PowerZone {
 
     this.array = this._raise(this._composeArray(), -2.7, 0.5)
     this.battery = this._raise(this._composeBattery(), 0.2, -2.0)
-    this.tower = this._raise(this._composeTower(), 2.7, -0.7)
+    this.rig = this._raise(this._composeRig(), 2.7, -0.7)
     this.fence = this._raise(this._composeFence(), 0, 0)
 
-    // The fan rides apart from its mast so the colony can hold it still: the
-    // shader spins every rotor it sees, and this one must stop on command.
-    const fanBuilt = this._finish(new Composer().add('windturbine_tall_fan'))
-    this.fan = fanBuilt.mesh
-    this.fan.position.set(2.7, DECK_TOP + TALL_HUB * BUILDING_SCALE, -0.7)
-    this.fan.rotation.y = -0.35
-    this.plot.group.add(this.fan)
+    // Grid-mode light: the rig's own material carries a steady POWER_ACCENT
+    // emissive, damped on/off like the array glint. Dark otherwise.
+    this.rig.mesh.material.emissive = new THREE.Color(POWER_ACCENT)
+    this.rig.mesh.material.emissiveIntensity = 0
 
     this._buildGauge()
 
@@ -186,14 +184,15 @@ export class PowerZone {
   _composeBattery() {
     const c = new Composer()
     c.add('basemodule_C')
-    // West of the bank: east is the turbine's mast.
+    // West of the bank: east is the rig.
     c.add('containers_D', { x: -1.7, z: 0.6, ry: 0.4 })
     return this._finish(c)
   }
 
-  _composeTower() {
-    // Solo: the mast without its rotor — the fan is placed separately.
-    return this._finish(new Composer().add('windturbine_tall', { solo: true }))
+  _composeRig() {
+    // Structure without its module, plus the module at its modelled offset —
+    // the same solo-plus-offset shape as the town's turbine recipe.
+    return this._finish(new Composer().add('drill_structure', { solo: true }).add('drill_module', { y: 1 }))
   }
 
   _composeFence() {
@@ -295,8 +294,12 @@ export class PowerZone {
       this.battery.mesh.material.color.setScalar(guard ? 0.55 : 1)
     }
 
-    // Station fan: grid or stillness, nothing between.
-    if (turbineSpinning(this.solar)) this.fan.rotateZ(dt * FAN_RATE)
+    // Station rig: grid glow or darkness, nothing between. Damped so the
+    // changeover reads as a lamp warming, not a blink.
+    const rigTarget = rigGlowOn(this.solar) ? 1 : 0
+    this._rigGlow += (rigTarget - this._rigGlow) * k
+    if (Math.abs(this._rigGlow - rigTarget) < 0.001) this._rigGlow = rigTarget
+    this.rig.mesh.material.emissiveIntensity = this._rigGlow * RIG_GLOW
 
     // Deck kerb + lamps follow the town's night dimming, never urgent.
     this.plot.setNight(night, false, elapsed, solarDimFactor(this.solar))
@@ -320,8 +323,8 @@ export class PowerZone {
 
   dispose() {
     this.plot.dispose()
-    this.fan.geometry.dispose()
-    this.fan.material.dispose()
+    this.rig.mesh.geometry.dispose()
+    this.rig.mesh.material.dispose()
     for (const m of this.gaugeBlocks) {
       m.geometry.dispose()
       m.material.dispose()

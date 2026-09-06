@@ -5,7 +5,7 @@
  * Feeds fake SolarStates through the whole matrix — the three source states, stale and
  * missing payloads, null fields, the glint ceiling — and asserts the visuals land
  * exactly where the design matrix says: glint level, night-dim factor, HA clock
- * target, the one-line readout, and the power zone's fill/guard/spin/flow helpers.
+ * target, the one-line readout, and the power zone's fill/guard/glow/flow helpers.
  *
  * Colony rule: pure display of HA facts. A null source is neutral, always — the
  * colony never infers a conserving state from discharge alone. History is a
@@ -23,7 +23,7 @@ import {
   solarReadout,
   batteryFillLevel,
   batteryBelowCutoff,
-  turbineSpinning,
+  rigGlowOn,
   batteryFlow,
   hasSolarHistory,
   SOLAR_GLINT_FULL_W,
@@ -77,7 +77,7 @@ function zone(title, solar, expect) {
   console.log(`\n${title}`)
   check('  fill', batteryFillLevel(solar), expect.fill)
   check('  guard', batteryBelowCutoff(solar), expect.guard)
-  check('  spin', turbineSpinning(solar), expect.spin)
+  check('  glow', rigGlowOn(solar), expect.glow)
   check('  flow', batteryFlow(solar), expect.flow)
   check('  hasHistory', hasSolarHistory(solar), expect.hasHistory)
 }
@@ -184,31 +184,31 @@ scenario('9. null fields inside a fresh payload render as em-dashes, never NaN',
 zone('10. zone battery day (charging, above cutoff)', state({ solarPowerW: 1500, batteryPowerW: 400, batterySoC: 82, cutoff: 20, cutIn: 50, source: 'solar' }), {
   fill: 0.82,
   guard: false,
-  spin: false,
+  glow: false,
   flow: 'charge',
   hasHistory: false,
 })
 
-zone('11. zone grid mode (station spins, guard reads HA numbers)', state({ isDay: false, batterySoC: 18, batteryPowerW: 0, cutoff: 20, cutIn: 50, source: 'grid' }), {
+zone('11. zone grid mode (rig glows, guard reads HA numbers)', state({ isDay: false, batterySoC: 18, batteryPowerW: 0, cutoff: 20, cutIn: 50, source: 'grid' }), {
   fill: 0.18,
   guard: true,
-  spin: true,
+  glow: true,
   flow: 'idle',
   hasHistory: false,
 })
 
-zone('12. zone battery mode (conserving, fan still)', state({ isDay: false, batterySoC: 55, batteryPowerW: -300, cutoff: 20, source: 'battery' }), {
+zone('12. zone battery mode (conserving, rig dark)', state({ isDay: false, batterySoC: 55, batteryPowerW: -300, cutoff: 20, source: 'battery' }), {
   fill: 0.55,
   guard: false,
-  spin: false,
+  glow: false,
   flow: 'discharge',
   hasHistory: false,
 })
 
-zone('13. zone null source (neutral: fan still, no guard without cutoff)', state({ batterySoC: 40, batteryPowerW: -250, source: null }), {
+zone('13. zone null source (neutral: rig dark, no guard without cutoff)', state({ batterySoC: 40, batteryPowerW: -250, source: null }), {
   fill: 0.4,
   guard: false,
-  spin: false,
+  glow: false,
   flow: 'discharge',
   hasHistory: false,
 })
@@ -216,7 +216,7 @@ zone('13. zone null source (neutral: fan still, no guard without cutoff)', state
 zone('14. zone history present changes nothing rendered', state({ solarPowerW: 1500, batteryPowerW: 400, batterySoC: 82, cutoff: 20, source: 'solar', history: [[{ entity_id: 'sensor.x', state: '1.5', last_changed: 't' }]] }), {
   fill: 0.82,
   guard: false,
-  spin: false,
+  glow: false,
   flow: 'charge',
   hasHistory: true,
 })
@@ -224,7 +224,7 @@ zone('14. zone history present changes nothing rendered', state({ solarPowerW: 1
 zone('15. zone stale/nulls (everything neutral, never NaN)', state({ stale: true, solarPowerW: null, batterySoC: null, batteryPowerW: null, cutoff: null, source: null }), {
   fill: null,
   guard: false,
-  spin: false,
+  glow: false,
   flow: 'unknown',
   hasHistory: false,
 })
@@ -232,7 +232,7 @@ zone('15. zone stale/nulls (everything neutral, never NaN)', state({ stale: true
 zone('16. zone null payload (same neutral)', null, {
   fill: null,
   guard: false,
-  spin: false,
+  glow: false,
   flow: 'unknown',
   hasHistory: false,
 })
@@ -261,15 +261,17 @@ check('undefined source + discharge is neutral too', solarDimFactor(state({ batt
 check('battery source + discharge dims', solarDimFactor(state({ batteryPowerW: -1, source: 'battery' })), SOLAR_BATTERY_DIM)
 check('battery source without discharge never dims', solarDimFactor(state({ batteryPowerW: 0, source: 'battery' })), 1)
 check('stale battery discharge never dims', solarDimFactor(state({ batteryPowerW: -500, source: 'battery', stale: true })), 1)
-// Zone helpers: clamps, cutoffs, spin, flow, history shape.
+// Zone helpers: clamps, cutoffs, glow, flow, history shape.
 check('fill clamps at full', batteryFillLevel(state({ batterySoC: 140 })), 1)
 check('fill clamps at empty', batteryFillLevel(state({ batterySoC: -4 })), 0)
 check('fill null SoC is null', batteryFillLevel(state({ batterySoC: null })), null)
 check('guard needs HA cutoff (none => false)', batteryBelowCutoff(state({ batterySoC: 5, cutoff: null })), false)
 check('guard at exactly cutoff', batteryBelowCutoff(state({ batterySoC: 20, cutoff: 20 })), true)
 check('guard above cutoff', batteryBelowCutoff(state({ batterySoC: 21, cutoff: 20 })), false)
-check('spin on solar source is still', turbineSpinning(state({ source: 'solar' })), false)
-check('spin on stale grid is still', turbineSpinning(state({ source: 'grid', stale: true })), false)
+check('glow on solar source is dark', rigGlowOn(state({ source: 'solar' })), false)
+check('glow on stale grid is dark', rigGlowOn(state({ source: 'grid', stale: true })), false)
+check('glow on null source is dark', rigGlowOn(state({ source: null })), false)
+check('glow on fresh grid is on', rigGlowOn(state({ source: 'grid' })), true)
 check('flow idle at 0 W', batteryFlow(state({ batteryPowerW: 0 })), 'idle')
 check('flow unknown on NaN', batteryFlow(state({ batteryPowerW: Number.NaN })), 'unknown')
 check('empty history array reads as absent', hasSolarHistory(state({ history: [] })), false)

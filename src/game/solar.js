@@ -82,10 +82,11 @@ export function batteryBelowCutoff(solar) {
 }
 
 /**
- * The station fan turns if and only if HA names grid as the source. Stale,
- * null, solar and battery all read as still — the house is on its own power.
+ * The rig glows if and only if HA names grid as the source. Stale,
+ * null, solar and battery all read as dark — the house is on its own power.
+ * Steady POWER_ACCENT emissive, no motion.
  */
-export function turbineSpinning(solar) {
+export function rigGlowOn(solar) {
   return isSolarFresh(solar) && solar.source === 'grid'
 }
 
