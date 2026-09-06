@@ -48,10 +48,9 @@ import {
  *                brighter while charging; at or under HA's cutoff the row
  *                dims and the empty blocks carry a faint guard glow. The
  *                flow boundary alone carries an activity cue, same accent:
- *                the draining block blinks slow and deep on discharge, the
- *                filling block sits bright with a shallow breathe on charge,
- *                and idle holds a soft static glow — one block, never a
- *                travelling pulse.
+ *                the draining block breathes quick and deep on discharge,
+ *                the filling block blinks quick on charge, and idle holds a
+ *                soft static glow — one block, rhythm telling them apart.
  *   rigs         two `drill_structure` + `drill_module` bases, each with a
  *                `windturbine_low` mast on its roof and that mast's fan on
  *                top — one composite silhouette each, same recipe twice. Grid
@@ -59,11 +58,14 @@ import {
  *                POWER_ACCENT emissive AND its fan turns, both if and only if
  *                HA names grid — dark and still on solar, battery, null,
  *                stale. No second behavior, no fake states. Each rig also
- *                carries one mast lamp flush on the mast's +x plate, head
- *                whole below the fan sweep (the pack's `lights` node
- *                is a full 1 m lamp post and composes poorly up there):
+ *                carries the ship's beacon recipe on top: one warm-red
+ *                toneMapped sphere on an overarm off a slim side mast (the
+ *                fan is a rotating drum cage, so no static steel can rise
+ *                through the fork on-axis), belly above the sweep, the
+ *                highest point of the rig (the pack's `lights`
+ *                node is a full 1 m lamp post and composes poorly up there):
  *                grid double-flash, battery slow pulse, solar steady glow,
- *                dark otherwise. One shared material, so both lamps blink
+ *                dark otherwise. One shared material, so both spheres blink
  *                in sync.
  *   fence        containers / cargodepot / lights ringing the kerb as scenery
  *
@@ -89,20 +91,19 @@ export const POWER_PLOT_ID = 'power-zone'
 const YARD_SEED = 20260906
 /** Rig glow: steady POWER_ACCENT emissive while HA names grid. Calm, no pulse. */
 const RIG_GLOW = 0.9
-/** Mast lamp peak emissive — night-visible but subtle, below the bank's charge glare. */
-const BEACON_PEAK = 1.8
 /**
- * Mast lamp seat, from BEACON_SEAT in src/game/solar.js (rig-composer pack
- * units, same space the rig composes in): the head sits inner-face flush on
- * the mast's flat +x plate, whole below the fan sweep. Probed at triangle
- * level against the glb's own steel — mounted, never floating.
+ * Beacon seat, from BEACON_SEAT in src/game/solar.js (rig-composer pack
+ * units, same space the rig composes in): a ship-recipe sphere on an
+ * overarm off a slim side mast, belly above the sweep, the highest point
+ * of the rig. Probed at triangle level against the glb's own steel —
+ * mounted, never floating.
  * tools/verify-power-nodes re-checks the seat against the packed triangles
  * at build time.
  */
-/** Flow cue gain: discharge blinks deep, charge sits bright and breathes shallow. */
-const DISCHARGE_BLINK_GAIN = 1.1
+/** Flow cue gain: discharge breathes deep, charge blinks over a bright seat. */
+const DISCHARGE_BREATHE_GAIN = 1.1
 const CHARGE_SEAT_BONUS = 0.3
-const CHARGE_BREATHE_GAIN = 0.4
+const CHARGE_BLINK_GAIN = 0.4
 /** Roof plane of the drill structure in pack units — the mast stands on it. */
 const TOWER_Y = 2.0
 /** Hub height of the low turbine mast, as modelled (matches the town recipe). */
@@ -196,22 +197,35 @@ export class PowerZone {
       rig.mesh.material.emissiveIntensity = 0
     }
 
-    // Mast lamps: one head per rig, both children of their rig mesh so they
-    // ride it, sharing ONE material so the two lamps blink as one. Plain
-    // material, like the bank blocks — no atlas, no reveal shader, nothing
-    // to leak onto the town.
-    this._beaconMat = new THREE.MeshStandardMaterial({
-      color: 0x111111,
-      roughness: 0.6,
-      metalness: 0,
-      emissive: POWER_ACCENT,
-      emissiveIntensity: 0,
-    })
-    const headSize = BEACON_SEAT.head.size * BUILDING_SCALE
-    this._beaconGeo = new THREE.BoxGeometry(headSize, headSize, headSize)
+    // Beacon lamps: the ship's recipe, one per rig — a warm-red toneMapped
+    // sphere on an overarm off a slim side mast (BEACON_SEAT, triangle-proven
+    // in tools/verify-power-nodes: the fan is a rotating drum cage, so no
+    // static steel can rise through the fork on-axis). Both spheres are
+    // children of their rig mesh so they ride it, sharing ONE material so
+    // the two rigs blink as one; masts and arms share one dark steel. Plain
+    // materials — no atlas, no reveal shader, nothing to leak onto the town.
+    this._beaconMat = new THREE.MeshBasicMaterial({ color: 0x000000, toneMapped: true })
+    this._beaconGeo = new THREE.SphereGeometry(BEACON_SEAT.radius * BUILDING_SCALE, 10, 8)
+    this._mastMat = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.5, metalness: 0.8 })
+    const poleH = (BEACON_SEAT.pole.topY - BEACON_SEAT.pole.baseY) * BUILDING_SCALE
+    this._poleGeo = new THREE.CylinderGeometry(
+      BEACON_SEAT.pole.radius * BUILDING_SCALE, BEACON_SEAT.pole.radius * BUILDING_SCALE, poleH, 8)
+    const poleMidY = ((BEACON_SEAT.pole.baseY + BEACON_SEAT.pole.topY) / 2) * BUILDING_SCALE
+    this._armGeo = new THREE.BoxGeometry(
+      (BEACON_SEAT.arm.x1 - BEACON_SEAT.arm.x0) * BUILDING_SCALE,
+      (BEACON_SEAT.arm.y1 - BEACON_SEAT.arm.y0) * BUILDING_SCALE,
+      2 * BEACON_SEAT.pole.radius * BUILDING_SCALE)
+    const armMidX = ((BEACON_SEAT.arm.x0 + BEACON_SEAT.arm.x1) / 2) * BUILDING_SCALE
+    const armMidY = ((BEACON_SEAT.arm.y0 + BEACON_SEAT.arm.y1) / 2) * BUILDING_SCALE
     for (const rig of [this.rig, this.rig2]) {
+      const pole = new THREE.Mesh(this._poleGeo, this._mastMat)
+      pole.position.set(BEACON_SEAT.pole.x * BUILDING_SCALE, poleMidY, BEACON_SEAT.pole.z * BUILDING_SCALE)
+      rig.mesh.add(pole)
+      const arm = new THREE.Mesh(this._armGeo, this._mastMat)
+      arm.position.set(armMidX, armMidY, BEACON_SEAT.pole.z * BUILDING_SCALE)
+      rig.mesh.add(arm)
       const lamp = new THREE.Mesh(this._beaconGeo, this._beaconMat)
-      lamp.position.set(BEACON_SEAT.head.x * BUILDING_SCALE, BEACON_SEAT.head.y * BUILDING_SCALE, BEACON_SEAT.head.z * BUILDING_SCALE)
+      lamp.position.set(BEACON_SEAT.center.x * BUILDING_SCALE, BEACON_SEAT.center.y * BUILDING_SCALE, BEACON_SEAT.center.z * BUILDING_SCALE)
       rig.mesh.add(lamp)
     }
 
@@ -394,8 +408,8 @@ export class PowerZone {
 
     // Battery row: fill quartiles west to east, flow brightness, cutoff
     // guard — plus the activity cue on the flow boundary alone. Discharge
-    // blinks the draining block slow and deep; charge seats the filling
-    // block bright with a shallow breathe; idle holds a soft static glow.
+    // breathes the draining block quick and deep; charge blinks the filling
+    // block quick over a bright seat; idle holds a soft static glow.
     const flow = batteryFlow(this.solar)
     const guard = batteryBelowCutoff(this.solar)
     const lit = batteryLitCount(this.solar, BANK_BLOCKS)
@@ -411,7 +425,7 @@ export class PowerZone {
     }
     if (active >= 0) {
       const level = batteryActivityLevel(this.solar, elapsed)
-      const bump = flow === 'discharge' ? DISCHARGE_BLINK_GAIN * level : CHARGE_SEAT_BONUS + CHARGE_BREATHE_GAIN * level
+      const bump = flow === 'discharge' ? DISCHARGE_BREATHE_GAIN * level : CHARGE_SEAT_BONUS + CHARGE_BLINK_GAIN * level
       this.bankBlocks[active].material.emissiveIntensity = baseFor(active) + bump
     }
     if (this._dimmed !== guard) {
@@ -431,9 +445,11 @@ export class PowerZone {
     if (turbineSpinning(this.solar)) this._rigTime += dt
     this._rigClock.value = this._rigTime
 
-    // Mast lamps: crisp pattern straight from the source word, on the shared
-    // frame clock so both rigs blink as one. No damping — a beacon blinks.
-    this._beaconMat.emissiveIntensity = beaconBrightness(this.solar, elapsed) * BEACON_PEAK
+    // Beacon spheres: the ship's warm-red strobe recipe straight from the
+    // source word, on the shared frame clock so both rigs blink as one.
+    // No damping — a beacon blinks.
+    const bk = beaconBrightness(this.solar, elapsed)
+    this._beaconMat.color.setRGB(3.2 * bk, 0.35 * bk, 0.28 * bk)
 
     // Deck kerb + lamps follow the town's night lighting, never urgent.
     this.plot.setNight(night, false, elapsed)
@@ -463,6 +479,9 @@ export class PowerZone {
     this.rig2.mesh.material.dispose()
     this._beaconGeo.dispose()
     this._beaconMat.dispose()
+    this._poleGeo.dispose()
+    this._armGeo.dispose()
+    this._mastMat.dispose()
     for (const m of this.bankBlocks) {
       m.geometry.dispose()
       m.material.dispose()

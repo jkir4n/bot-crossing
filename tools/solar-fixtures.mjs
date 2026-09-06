@@ -7,8 +7,9 @@
  * exactly where the design matrix says: glint level, HA clock
  * target, the one-line readout, and the power zone's fill/lit-count/guard/glow/spin/flow helpers.
  * The mast-lamp beacon asserts through the same door: one pattern per source word,
- * the rhythm pinned per pattern, the active-block cue pinned per current, and the
- * lamp seat checked attached to the mast and clear of the rotor.
+ * the rhythm pinned per pattern, the active-block cue pinned per current (discharge
+ * breathes quick, charge blinks quicker), and the sphere-on-a-goalpost seat
+ * checked mounted on the structure roof and clear of the rotor sweep.
  * The power statistics panel asserts through the same door: live-state mapping
  * (nulls to dashes) with spin/glow unchanged. The panel renders live rows only —
  * recorder history stays a backend passthrough the panel never reads.
@@ -40,6 +41,8 @@ import {
   BEACON_SEAT,
   MAST_GEOMETRY,
   isBeaconSeated,
+  DISCHARGE_BREATH_S,
+  CHARGE_BLINK_S,
   hasSolarHistory,
   powerPanel,
   powerHistorySeries,
@@ -426,29 +429,39 @@ check('stale names no block', activeBlockIndex(state({ batteryPowerW: -300, stal
 check('null payload names no block', activeBlockIndex(null), -1)
 check('empty row names no block', activeBlockIndex(state({ batteryPowerW: -300 }), 0), -1)
 
-console.log('\n26. activity waveforms: discharge blinks deep and slow, charge breathes shallow and bright')
+console.log('\n26. activity waveforms: discharge breathes quick and deep, charge blinks quick (blink period < breath period)')
 check('discharge rests low at phase 0', batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 0), 0.15)
-check('discharge peaks mid-beat', Math.abs(batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 1.5) - 1) < 1e-9, true)
-check('discharge wraps to rest', batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 3.0), 0.15)
-check('charge rests high at phase 0', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 0), 0.7)
-check('charge breathes to full mid-beat', Math.abs(batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 2.8) - 1) < 1e-9, true)
-check('charge wraps to rest', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 5.6), 0.7)
-check('charge never dips to the discharge floor', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 0) > batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 0), true)
+check('discharge rises mid-breath', Math.abs(batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 0.5) - 0.575) < 1e-9, true)
+check('discharge peaks mid-beat', Math.abs(batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 1.0) - 1) < 1e-9, true)
+check('discharge wraps to rest', batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 2.0), 0.15)
+check('discharge breath period is 2 s', DISCHARGE_BREATH_S, 2.0)
+check('charge blinks on at phase 0', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 0), 1)
+check('charge holds the blink past onset', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 0.05), 1)
+check('charge rests dark between blinks', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 0.5), 0)
+check('charge wraps to the next blink', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 1.2), 1)
+check('charge blink period is 1.2 s, under the breath', CHARGE_BLINK_S < DISCHARGE_BREATH_S, true)
+check('charge finishes on+off while discharge still breathes', batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 1.2) === batteryActivityLevel(state({ batteryPowerW: 400, source: 'solar' }), 0) && batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 1.2) !== batteryActivityLevel(state({ batteryPowerW: -300, source: 'battery' }), 0), true)
 check('idle holds level (no blink)', batteryActivityLevel(state({ batteryPowerW: 0, source: 'grid' }), 1.5), 0)
 check('null watts hold level', batteryActivityLevel(state({ batteryPowerW: null }), 1.5), 0)
 check('stale holds level', batteryActivityLevel(state({ batteryPowerW: -300, stale: true }), 0.5), 0)
 check('null payload holds level', batteryActivityLevel(null, 0.5), 0)
 check('no clock holds level', batteryActivityLevel(state({ batteryPowerW: -300 }), Number.NaN), 0)
 
-console.log('\n27. beacon seat sits flush on the mast plate, whole head below the sweep')
-check('rotor floor is hub minus blade reach', Math.abs(MAST_GEOMETRY.rotorBottomY - (MAST_GEOMETRY.hubY - MAST_GEOMETRY.bladeReach)) < 1e-9, true)
-check('shipped seat is attached and rotor-clear', isBeaconSeated(BEACON_SEAT), true)
+console.log('\n27. beacon seat rides a side mast + overarm, sphere belly above the sweep')
+check('blade ceiling is hub plus blade reach', Math.abs(MAST_GEOMETRY.bladeTopY - (MAST_GEOMETRY.hubY + MAST_GEOMETRY.bladeReach)) < 1e-9, true)
+check('sphere belly sits exactly on the overarm', Math.abs((BEACON_SEAT.center.y - BEACON_SEAT.radius) - BEACON_SEAT.arm.y1) < 1e-9, true)
+check('side mast meets the overarm', Math.abs(BEACON_SEAT.pole.topY - BEACON_SEAT.arm.y1) < 1e-9, true)
+check('shipped seat is mounted and rotor-clear', isBeaconSeated(BEACON_SEAT), true)
 check('shipped seat passes against the shipped mast', isBeaconSeated(BEACON_SEAT, MAST_GEOMETRY), true)
-check('head lifted into the sweep fails', isBeaconSeated({ head: { ...BEACON_SEAT.head, y: 2.3 } }), false)
-check('head off the plate fails (floating lamp)', isBeaconSeated({ head: { ...BEACON_SEAT.head, x: 0.8 } }), false)
-check('head sunk under the roof fails', isBeaconSeated({ head: { ...BEACON_SEAT.head, y: 1.9 } }), false)
-check('head swallowed by the mast fails', isBeaconSeated({ head: { ...BEACON_SEAT.head, x: 0.36 } }), false)
+check('sphere floated off the overarm fails', isBeaconSeated({ ...BEACON_SEAT, center: { ...BEACON_SEAT.center, y: BEACON_SEAT.center.y - 0.05 } }), false)
+check('sphere off the axis fails', isBeaconSeated({ ...BEACON_SEAT, center: { ...BEACON_SEAT.center, x: 0.2 } }), false)
+check('sphere sunk into the sweep fails', isBeaconSeated({ ...BEACON_SEAT, center: { ...BEACON_SEAT.center, y: 3.4 } }), false)
+check('sphere pushed out of the fork fails', isBeaconSeated({ ...BEACON_SEAT, center: { ...BEACON_SEAT.center, z: 0.25 } }), false)
+check('overarm sunk into the sweep fails', isBeaconSeated({ ...BEACON_SEAT, arm: { ...BEACON_SEAT.arm, y0: 3.4 } }), false)
+check('side mast crowding the cage fails', isBeaconSeated({ ...BEACON_SEAT, pole: { ...BEACON_SEAT.pole, x: 0.44 } }), false)
+check('mast foot floating above the roof fails', isBeaconSeated({ ...BEACON_SEAT, pole: { ...BEACON_SEAT.pole, baseY: 2.1 } }), false)
 check('null seat fails', isBeaconSeated(null), false)
+check('null mast fails', isBeaconSeated(BEACON_SEAT, null), false)
 
 console.log(`\n${checks - failures}/${checks} checks passed`)
 if (failures) {

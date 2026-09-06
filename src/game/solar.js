@@ -146,64 +146,83 @@ export function beaconBrightness(solar, t) {
 //
 // Measured from public/assets/spacebase.glb — every kit node there is
 // unrotated at unit scale, so the packed frames ARE the composer's. The low
-// mast stands 2.0..2.5 on the structure roof plane (a 0.65 cap), and its fan
-// carries twin discs at z ±0.45 reaching 0.575 about the hub at 2.89. The
-// old roof-corner seat (0.72, 2.06, -0.72) sat 0.26 clear of the nearest
-// steel: the structure top (±0.60) leaves no ring beside the mast base
-// (±0.57) to stand on, and the "widest face" bounds lied — per-axis maxima
-// are the base flare, not steel at the lamp's height. Triangle-level probing
-// finds the truth: the mast's +x face runs flat at x ≈ 0.40 across
-// y 2.08..2.20, so the lamp head sits inner-face flush ON that plate, below
-// the sweep, on the default (+x+z) camera's side. No arm, no standoff.
+// mast stands 2.0..2.5 on the structure roof plane, and its fan is a rotating
+// DRUM cage straddling the mast: twin discs at z ±0.33..±0.65 reaching 0.575
+// about the hub at 2.89, joined by flat shroud plates at hub ±0.389 that sweep
+// straight through the axis twice a turn. So nothing static can rise through
+// the fork on-axis — a centre pole would take a shroud plate amidships. The
+// lamp instead rides a slim side mast off the structure roof at x 0.55 (roof
+// steel runs solid to ±0.57, the pole face stands 0.11+ off the mast flank),
+// with an overarm at 3.55..3.62 carrying the sphere on the axis, belly above
+// the sweep ceiling — the ship's mast-top recipe on a goalpost mast, the
+// sphere the highest point of the rig. No guy-wires, no clutter.
 
 /**
- * Vertex-measured mast numbers the seat below is checked against. Rotor
- * floor is hub minus blade reach; the seat face is the mast's flat +x plate
- * under the lamp, from triangle-level probing of the packed glb.
+ * Vertex-measured mast numbers the seat below is checked against. Blade
+ * ceiling is hub plus blade reach; the fork gap is the closest any rotor
+ * steel (R > 0.2 about the hub) comes to the axis plane; the fork sweep is
+ * the reach of the z ≈ 0 rotor steel (the shroud plates) that a side mast
+ * must stand off from.
  */
 export const MAST_GEOMETRY = {
   roofY: 2.0,
   towerTopY: 2.5,
-  faceXAtSeat: 0.4,
   hubY: 2.89,
   bladeReach: 0.575,
   rotorBottomY: 2.315,
+  bladeTopY: 3.465,
+  bladeInnerZ: 0.33,
+  forkSweepR: 0.41,
 }
 
 /**
- * The lamp head per rig: one 0.12 cube, inner face flush on the mast's +x
- * plate. Pack units in the rig composer's frame — the renderer scales by
- * BUILDING_SCALE, the same space the rig composes in.
+ * The lamp per rig: one ship-recipe sphere on an overarm off a slim side
+ * mast. Pack units in the rig composer's frame — the renderer scales by
+ * BUILDING_SCALE, the same space the rig composes in, so the 0.13 sphere
+ * lands at the ship's 0.19 world size.
  */
 export const BEACON_SEAT = {
-  head: { x: 0.46, y: 2.14, z: 0, size: 0.12 },
+  center: { x: 0, y: 3.75, z: 0 },
+  radius: 0.13,
+  pole: { x: 0.55, z: 0, baseY: 1.95, topY: 3.62, radius: 0.035 },
+  arm: { x0: -0.05, x1: 0.59, y0: 3.55, y1: 3.62 },
 }
 
 /**
- * True when a lamp seat is visibly attached and rotor-clear: the head's
- * inner face sits on the mast plate (a graze reads as mounted; air reads as
- * floating), the head hangs on the mast body between roof and tower top,
- * whole below the rotor sweep and outside the swept cylinder.
+ * True when the lamp is visibly attached and rotor-clear: the side mast
+ * foot is buried in the structure roof (no float) standing off the cage
+ * sweep, the overarm rides above the sweep from the axis out past the mast,
+ * the mast meets the arm, and the sphere sits exactly on the arm on the
+ * axis, belly above the sweep ceiling and between the discs — the highest
+ * point of the rig.
  */
 export function isBeaconSeated(seat = BEACON_SEAT, mast = MAST_GEOMETRY) {
   if (!seat || !mast || typeof seat !== 'object' || typeof mast !== 'object') return false
-  const { head } = seat
-  if (!head || typeof head !== 'object') return false
-  const nums = [head.x, head.y, head.z, head.size,
-    mast.roofY, mast.towerTopY, mast.faceXAtSeat, mast.hubY, mast.bladeReach, mast.rotorBottomY]
+  const { center, radius, pole, arm } = seat
+  if (!center || typeof center !== 'object' || !pole || typeof pole !== 'object' || !arm || typeof arm !== 'object') return false
+  const nums = [center.x, center.y, center.z, radius, pole.x, pole.z, pole.baseY, pole.topY, pole.radius,
+    arm.x0, arm.x1, arm.y0, arm.y1,
+    mast.roofY, mast.towerTopY, mast.hubY, mast.bladeReach, mast.rotorBottomY, mast.bladeTopY, mast.bladeInnerZ, mast.forkSweepR]
   if (!nums.every(Number.isFinite)) return false
-  if (head.size <= 0) return false
-  const inner = head.x - head.size / 2
-  const top = head.y + head.size / 2
-  const bottom = head.y - head.size / 2
+  if (radius <= 0 || pole.radius <= 0) return false
+  if (!(arm.x1 > arm.x0 && arm.y1 > arm.y0)) return false
+  const bottom = center.y - radius
+  const top = center.y + radius
   const mounted =
-    Math.abs(inner - mast.faceXAtSeat) <= 0.02 &&
-    bottom > mast.roofY &&
-    top < mast.towerTopY
+    Math.abs(bottom - arm.y1) <= 0.002 &&
+    arm.x0 <= center.x && center.x <= pole.x && pole.x <= arm.x1 &&
+    Math.abs(pole.topY - arm.y1) <= 0.002 &&
+    pole.baseY <= mast.roofY
+  const standing =
+    pole.x - pole.radius >= mast.forkSweepR + 0.05 &&
+    Math.abs(pole.z) + pole.radius < mast.bladeInnerZ
   const clear =
-    top < mast.rotorBottomY &&
-    Math.hypot(inner, top - mast.hubY) > mast.bladeReach
-  return mounted && clear
+    arm.y0 >= mast.bladeTopY + 0.03 &&
+    Math.hypot(center.x, center.z) <= 0.01 &&
+    Math.abs(center.z) + radius < mast.bladeInnerZ &&
+    bottom >= mast.bladeTopY + 0.03 &&
+    top > mast.bladeTopY
+  return mounted && standing && clear
 }
 
 /** Which way energy is flowing through the battery, from its meter sign only. */
@@ -232,23 +251,31 @@ export function activeBlockIndex(solar, blocks = 4) {
   return flow === 'charge' ? Math.min(lit, blocks - 1) : Math.max(lit - 1, 0)
 }
 
+/** Discharge breath period (s) — quick breathing that reads as giving out. */
+export const DISCHARGE_BREATH_S = 2.0
+/** Charge blink period (s) — an energetic quick blink, clearly quicker than a breath. */
+export const CHARGE_BLINK_S = 1.2
+/** Charge blink on-time (s) per period — quick but never strobing. */
+const CHARGE_BLINK_ON_S = 0.12
+
 /**
- * Activity glow 0..1 for the active block at `t` seconds. Discharge blinks
- * slow and deep (readable as giving out power); charge breathes shallow
- * around a bright seat, distinct from discharge at a glance. Idle, unknown,
- * stale, null and clockless readings hold 0 — the renderer leaves the row
- * static, never guessed.
+ * Activity glow 0..1 for the active block at `t` seconds. Discharge breathes
+ * quick and deep (readable as giving out power); charge answers with a fast
+ * blink, like a device charge LED (readable as taking power in) — the RHYTHM
+ * is what differs, and the blink period sits well under the breath period.
+ * Idle, unknown, stale, null and clockless readings hold 0 — the renderer
+ * leaves the row static, never guessed.
  */
 export function batteryActivityLevel(solar, t) {
   if (!Number.isFinite(t)) return 0
   const flow = batteryFlow(solar)
   if (flow === 'discharge') {
-    const ph = ((Math.max(0, t) % 3.0) + 3.0) % 3.0
-    return 0.15 + 0.85 * (0.5 - 0.5 * Math.cos((2 * Math.PI * ph) / 3.0))
+    const ph = ((Math.max(0, t) % DISCHARGE_BREATH_S) + DISCHARGE_BREATH_S) % DISCHARGE_BREATH_S
+    return 0.15 + 0.85 * (0.5 - 0.5 * Math.cos((2 * Math.PI * ph) / DISCHARGE_BREATH_S))
   }
   if (flow === 'charge') {
-    const ph = ((Math.max(0, t) % 5.6) + 5.6) % 5.6
-    return 0.7 + 0.3 * (0.5 - 0.5 * Math.cos((2 * Math.PI * ph) / 5.6))
+    const ph = ((Math.max(0, t) % CHARGE_BLINK_S) + CHARGE_BLINK_S) % CHARGE_BLINK_S
+    return ph < CHARGE_BLINK_ON_S ? 1 : 0
   }
   return 0
 }
