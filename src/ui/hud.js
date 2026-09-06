@@ -3,6 +3,7 @@ import { PLANETS } from '../world/planet.js'
 import { TIMES } from '../world/sky.js'
 import { STATUS_LABEL } from '../game/colony.js'
 import { presenceChip, presenceClass, presenceNote, presenceSig, remotePresence } from './remote-presence.js'
+import { solarReadout } from '../game/solar.js'
 import { FACE, FRAME_COLS, FRAME_ROWS } from '../agents/faces.js'
 
 /**
@@ -92,6 +93,15 @@ export class Hud {
       wrap.appendChild(b)
       this.statEls[def.key] = b
     }
+    // Solar (fork-only): the one-line live readout at the end of the stats bar — solar
+    // watts, battery percent, source mark. A span, not a button: it reports, it never acts.
+    const sun = document.createElement('span')
+    sun.className = 'stat solar'
+    sun.hidden = true
+    wrap.appendChild(sun)
+    this.solarEl = sun
+    this._solar = null
+    this._syncSolar()
   }
 
   _buildSettings() {
@@ -196,19 +206,60 @@ export class Hud {
 
     // Lighting.
     const light = group('Lighting')
+    // Solar (fork-only): which clock drives the sky. Manual and Internal cycle are exactly
+    // the old slider/autoTime pair; Home Assistant follows the live energy state.
+    const timeSrc = this._select(
+      'Time source',
+      'timeSource',
+      [
+        ['manual', 'Manual'],
+        ['internal', 'Internal cycle'],
+        ['ha', 'Home Assistant'],
+      ],
+      'Which clock drives the sky. Home Assistant follows the live energy state.'
+    )
+    timeSrc.querySelector('select').addEventListener('change', () => {
+      const src = s.get('timeSource')
+      // The old autoTime flag still runs the internal cycle; the picker just owns it now.
+      if (src === 'internal') s.set('autoTime', true)
+      else s.set('autoTime', false)
+      if (src === 'ha') this.hint('Following Home Assistant — drag the slider for a 60s peek')
+    })
+    const presetChips = chips(
+      TIMES.map((t) => ({ id: t.id, label: t.label })),
+      () => nearestTime(this.settings.get('timeOfDay')),
+      (id) => {
+        // Greyed in HA mode: the highlight is a live readout there, not a control.
+        if (s.get('timeSource') === 'ha') return
+        this.settings.set('autoTime', false)
+        this.settings.set('timeOfDay', TIMES.find((t) => t.id === id).value)
+      },
+      this.controls
+    )
+    const timeRow = this._slider('Time of day', 'timeOfDay', 0, 1, 0.005, clockLabel)
+    const cycleRow = this._toggle('Cycle day/night', 'autoTime', 'Runs the clock forward on its own.')
+    const lenRow = this._slider('Cycle length', 'dayLength', 30, 900, 30, (v) => `${Math.round(v / 60)}m`)
+    light.append(timeSrc, presetChips, timeRow, cycleRow, lenRow)
+    // In HA mode the manual clock controls grey out but stay visible; the preset
+    // highlight keeps tracking as a readout of where HA currently holds the clock.
+    this.controls.push({
+      el: light,
+      sync: () => {
+        const ha = s.get('timeSource') === 'ha'
+        presetChips.classList.toggle('disabled', ha)
+        for (const row of [timeRow, cycleRow, lenRow]) {
+          row.classList.toggle('disabled', ha)
+          for (const c of row.querySelectorAll('input, button, select')) c.disabled = ha
+        }
+      },
+    })
     light.append(
-      chips(
-        TIMES.map((t) => ({ id: t.id, label: t.label })),
-        () => nearestTime(this.settings.get('timeOfDay')),
-        (id) => {
-          this.settings.set('autoTime', false)
-          this.settings.set('timeOfDay', TIMES.find((t) => t.id === id).value)
-        },
-        this.controls
+      this._toggle(
+        'Solar readout',
+        'solarReadout',
+        'Live watts, battery percent and source mark in the stats bar.'
       ),
-      this._slider('Time of day', 'timeOfDay', 0, 1, 0.005, clockLabel),
-      this._toggle('Cycle day/night', 'autoTime', 'Runs the clock forward on its own.'),
-      this._slider('Cycle length', 'dayLength', 30, 900, 30, (v) => `${Math.round(v / 60)}m`),
+      this._toggle('Panel glint', 'solarGlint', 'Let live output glint on the colony’s photovoltaic glass.'),
       this._toggle(
         'Environment light',
         'ibl',
@@ -358,6 +409,7 @@ export class Hud {
   syncSettings() {
     for (const c of this.controls) c.sync()
     this.$('.fps').classList.toggle('on', Boolean(this.settings.get('showFps')))
+    this._syncSolarVisibility()
   }
 
   setStats(stats) {
@@ -368,6 +420,40 @@ export class Hud {
       this._last['stat:' + def.key] = n
       el.querySelector('.n').textContent = String(n)
       el.dataset.empty = String(n === 0)
+    }
+  }
+
+  /**
+   * Solar (fork-only): latest SolarState for the one-line stats-bar readout. Stale or
+   * missing payloads show the neutral line, never an error. Re-syncs settings so the HA
+   * greying and the live preset highlight track the payload.
+   */
+  setSolar(solar) {
+    this._solar = solar && typeof solar === 'object' ? solar : null
+    this._syncSolar()
+    this.syncSettings()
+  }
+
+  _syncSolar() {
+    if (!this.solarEl) return
+    const { text, title } = solarReadout(this._solar)
+    if (this._last.solarText !== text) {
+      this._last.solarText = text
+      this.solarEl.textContent = text
+    }
+    if (this._last.solarTitle !== title) {
+      this._last.solarTitle = title
+      this.solarEl.title = title
+    }
+    this._syncSolarVisibility()
+  }
+
+  _syncSolarVisibility() {
+    if (!this.solarEl) return
+    const hidden = this.settings.get('solarReadout') === false
+    if (this._last.solarHidden !== hidden) {
+      this._last.solarHidden = hidden
+      this.solarEl.hidden = hidden
     }
   }
 

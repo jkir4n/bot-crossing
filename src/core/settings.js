@@ -124,6 +124,11 @@ const DEFAULTS = {
   timeOfDay: 0.32, // 0..1 — 0 is midnight, 0.5 is noon
   autoTime: false,
   dayLength: 240, // seconds for a full cycle when autoTime is on
+  // Solar (fork-only): which clock drives the sky, plus the two solar toggles.
+  // 'manual' and 'internal' are exactly the old slider/autoTime pair, untouched.
+  timeSource: 'manual', // 'manual' | 'internal' | 'ha'
+  solarReadout: true,
+  solarGlint: true,
 
   // Look
   exposure: 1.0,
@@ -158,7 +163,16 @@ const RENDER_KEYS = new Set([
 
 export class Settings {
   constructor() {
-    this.values = { ...DEFAULTS, ...load() }
+    const stored = load()
+    this.values = { ...DEFAULTS, ...stored }
+    // Pre-solar browsers only knew the manual/autoTime pair: map it onto the time-source
+    // picker once, so an existing internal-cycle clock keeps cycling. Anything unknown
+    // falls back to manual, which is exactly the old slider behaviour.
+    if (!stored || !('timeSource' in stored)) {
+      this.values.timeSource = stored && stored.autoTime ? 'internal' : 'manual'
+    } else if (!['manual', 'internal', 'ha'].includes(this.values.timeSource)) {
+      this.values.timeSource = 'manual'
+    }
     this.listeners = new Set()
     this._saveTimer = 0
   }

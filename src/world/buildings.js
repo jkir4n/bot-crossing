@@ -34,6 +34,11 @@ export const buildingUniforms = {
   uNight: { value: 0 },
   /** Seconds, for anything that turns. One write drives every rotor in the colony. */
   uTime: { value: 0 },
+  // Solar (fork-only): live panel glint 0..1 and the night-lighting dim multiplier
+  // (1 normally, a notch below on battery discharge). Both rest at neutral, so every
+  // manual/internal frame renders exactly as before.
+  uGlint: { value: 0 },
+  uDim: { value: 1 },
 }
 
 /**
@@ -82,6 +87,8 @@ for (const [cell, [r, m]] of Object.entries(SURFACE)) {
 
 /** The one swatch the accent repaints, and the one that lights up after dark. */
 const ACCENT_MASK = cellMask([CELL.TRIM])
+/** Photovoltaic glass: the solar-array field plus the workshop roof panels. */
+const SOLAR_MASK = cellMask([CELL.SOLAR_A, CELL.SOLAR_B])
 
 // ── composition ───────────────────────────────────────────────────────────────────────
 
@@ -323,7 +330,10 @@ function decorate(material, uniforms) {
          uniform float uMinY;
          uniform vec3 uAccent;
          uniform float uNight;
+         uniform float uGlint;
+         uniform float uDim;
          uniform float uCellAccent[ ${CELL_COUNT} ];
+         uniform float uCellSolar[ ${CELL_COUNT} ];
          uniform float uCellRoughness[ ${CELL_COUNT} ];
          uniform float uCellMetalness[ ${CELL_COUNT} ];
 
@@ -363,9 +373,13 @@ function decorate(material, uniforms) {
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
          // Lamps and beacons, flagged per vertex when the recipe placed them.
-         totalEmissiveRadiance += diffuseColor.rgb * vEmissive * ( 0.25 + uNight * 2.4 );
+         totalEmissiveRadiance += diffuseColor.rgb * vEmissive * ( 0.25 + uNight * uDim * 2.4 );
          // Window strips and trim come on after dark, in the repo's own colour.
-         totalEmissiveRadiance += uAccent * uCellAccent[ cell ] * uNight * 1.15;
+         totalEmissiveRadiance += uAccent * uCellAccent[ cell ] * uNight * uDim * 1.15;
+         // Live output from the operator's array: photovoltaic glass carries a daytime
+         // glint proportional to production, dark again at night. uGlint rests at 0, so
+         // manual/internal frames render exactly as before.
+         totalEmissiveRadiance += diffuseColor.rgb * uCellSolar[ cell ] * uGlint * 1.7;
          // The construction line: a bright band riding just above the ground it rises from.
          float band = 1.0 - smoothstep( 0.0, 0.22, vLocalY - ground );
          totalEmissiveRadiance += uAccent * band * ( 1.0 - step( 0.999, uProgress ) ) * 1.5;`
@@ -469,7 +483,10 @@ export function createBuilding({ seed = 1, accent = 0xc96442, kind = null } = {}
     uAccent: { value: new THREE.Color(accent) },
     uNight: buildingUniforms.uNight,
     uTime: buildingUniforms.uTime,
+    uGlint: buildingUniforms.uGlint,
+    uDim: buildingUniforms.uDim,
     uCellAccent: { value: ACCENT_MASK },
+    uCellSolar: { value: SOLAR_MASK },
     uCellRoughness: { value: ROUGHNESS },
     uCellMetalness: { value: METALNESS },
   }

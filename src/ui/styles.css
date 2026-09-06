@@ -764,6 +764,36 @@ body {
   color: #b6b5be;
 }
 
+/* Solar (fork-only): HA mode greys the manual clock without hiding it. */
+.chips.disabled {
+  opacity: 0.45;
+}
+
+.chips.disabled .chip {
+  pointer-events: none;
+}
+
+.settings .row.disabled {
+  opacity: 0.45;
+}
+
+.settings .row.disabled input,
+.settings .row.disabled button,
+.settings .row.disabled select {
+  pointer-events: none;
+}
+
+/* Solar (fork-only): the one-line live readout at the end of the stats bar. */
+.stat.solar {
+  cursor: default;
+  color: #e6c67f;
+}
+
+.stat.solar:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--line);
+}
+
 /* ── the two panes: every repo, or the one you picked ───────────────────────────── */
 
 .side-body {

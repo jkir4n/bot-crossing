@@ -13,6 +13,7 @@ import { TIMES } from './world/sky.js'
 import {
   fetchThreads,
   fetchState,
+  fetchSolar,
   saveState,
   openThread,
   archiveThread,
@@ -30,6 +31,11 @@ import {
  */
 
 const POLL_MS = 15000
+// Solar (fork-only): the colony's /api/solar cache, read by every tab. Own timer, own
+// failure surface — a dead backend never touches the thread scan.
+const SOLAR_POLL_MS = 15000
+// Throttle for the HA-mode settings re-sync inside the frame loop (see engine.add below).
+let lastHaSync = 0
 const app = document.getElementById('app')
 
 app.insertAdjacentHTML(
@@ -602,6 +608,24 @@ async function poll() {
   }
 }
 
+// Solar (fork-only): own fetch, own guard, no toast — stale collapses to the neutral
+// look with a single console line from colony.setSolar, and the thread scan never notices.
+let solarPolling = false
+async function pollSolar() {
+  if (solarPolling) return
+  solarPolling = true
+  try {
+    const solar = await fetchSolar()
+    colony.setSolar(solar)
+    hud.setSolar(solar)
+  } catch {
+    colony.setSolar(null)
+    hud.setSolar(null)
+  } finally {
+    solarPolling = false
+  }
+}
+
 function queueSave() {
   clearTimeout(pendingSave)
   pendingSave = setTimeout(async () => {
@@ -643,11 +667,19 @@ async function boot() {
   if (!kitError) colony.onAssetsReady()
 
   await poll()
+  pollSolar()
   setInterval(poll, POLL_MS)
-  window.addEventListener('focus', poll)
+  setInterval(pollSolar, SOLAR_POLL_MS)
+  window.addEventListener('focus', () => {
+    poll()
+    pollSolar()
+  })
   // A tab that was hidden for an hour should catch up the moment it comes back.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) poll()
+    if (!document.hidden) {
+      poll()
+      pollSolar()
+    }
   })
 
   if (!localStorage.getItem('botcrossing.seen-help')) {
@@ -678,6 +710,15 @@ engine.add({
   update(dt, elapsed) {
     rig.update(dt)
     colony.update(dt, elapsed, rig.target)
+    // In HA mode the clock drifts on its own: re-sync the settings panel about once a
+    // second so the slider and the preset highlight read the live HA position.
+    if (settings.get('timeSource') === 'ha') {
+      const now = performance.now()
+      if (now - lastHaSync > 1000) {
+        lastHaSync = now
+        hud.syncSettings()
+      }
+    }
     // Whatever the camera is orbiting is what should be in focus.
     engine.setFocusDistance(rig.distance)
 

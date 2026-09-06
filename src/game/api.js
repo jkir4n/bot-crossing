@@ -15,6 +15,13 @@ const post = (url, payload) =>
 export const fetchThreads = () => req('/api/threads')
 export const fetchState = () => req('/api/state')
 
+/** Live energy state for the solar tile — read from the colony's cache, never HA directly.
+ * The route wraps the state as { solar }; unwrap defensively so a flat payload stays flat. */
+export const fetchSolar = async () => {
+  const data = await req('/api/solar')
+  return data && typeof data === 'object' && 'solar' in data ? data.solar : data
+}
+
 export const saveState = (state) =>
   req('/api/state', {
     method: 'PUT',

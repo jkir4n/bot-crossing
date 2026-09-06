@@ -626,12 +626,14 @@ export class Plot {
   }
 
   /** Night lighting, plus a pulse on the border when this plot holds something urgent. */
-  setNight(night, urgent, elapsed) {
+  setNight(night, urgent, elapsed, dim = 1) {
+    // Solar (fork-only): dim scales the night-driven terms only, so the daytime look —
+    // and every manual/internal frame — is untouched.
     if (this.borderMaterial) {
       this.borderMaterial.emissiveIntensity =
-        0.3 + night * 1.4 + (urgent ? 0.4 + Math.sin(elapsed * 3.4) * 0.32 : 0)
+        0.3 + night * dim * 1.4 + (urgent ? 0.4 + Math.sin(elapsed * 3.4) * 0.32 : 0)
     }
-    this.lampMaterial.color.copy(this._lampBase).multiplyScalar(0.5 + night * 2.4)
+    this.lampMaterial.color.copy(this._lampBase).multiplyScalar(0.5 + night * dim * 2.4)
   }
 
   dispose() {

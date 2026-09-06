@@ -13,6 +13,7 @@ import {
   PLOT_CELL,
 } from '../world/plots.js'
 import { createBuilding, buildingUniforms, Scaffolds } from '../world/buildings.js'
+import { isSolarFresh, solarGlintLevel, solarDimFactor, solarTimeTarget, SOLAR_PEEK_MS } from './solar.js'
 import { Ship } from '../world/ship.js'
 import { Astronauts } from '../agents/astronauts.js'
 import { Indicators, BADGE } from '../agents/indicators.js'
@@ -155,6 +156,14 @@ export class Colony {
     this._dustTint = new THREE.Color(this.planet.ground.high)
     this._c = new THREE.Color()
     this.stats = { agents: 0, projects: 0, working: 0, waiting: 0, blocked: 0, done: 0 }
+    // Solar (fork-only): latest /api/solar payload plus the damped display values the
+    // shader actually reads. Both start at neutral, so manual/internal modes — and any
+    // backend that never serves solar — render exactly as before.
+    this.solar = null
+    this._solarGlint = 0
+    this._solarDim = 1
+    this._solarStaleLogged = false
+    this._peekUntil = 0
 
     this._buildTerrain()
   }
@@ -247,7 +256,54 @@ export class Colony {
     this.astronauts.onSettingsChanged(changed)
     this.particles.onSettingsChanged(changed)
     if (changed.has('showLabels')) this._syncLabels()
-    if (changed.has('timeOfDay')) this.sky.setTime(this.settings.get('timeOfDay'))
+    if (changed.has('timeSource')) this._peekUntil = 0
+    if (changed.has('timeOfDay')) {
+      // In HA mode a drag (or L) is a 60s peek at that clock position, after which the
+      // damped HA follow resumes. Anywhere else the slider owns the sky, as always.
+      if (this.settings.get('timeSource') === 'ha') this._peekUntil = performance.now() + SOLAR_PEEK_MS
+      this.sky.setTime(this.settings.get('timeOfDay'))
+    }
+  }
+
+  /**
+   * Latest SolarState from the colony's /api/solar cache. Anything not fresh — stale,
+   * null, unreachable — collapses to neutral, with one info line per stale episode.
+   */
+  setSolar(solar) {
+    this.solar = solar && typeof solar === 'object' ? solar : null
+    const fresh = isSolarFresh(this.solar)
+    if (!fresh && !this._solarStaleLogged) {
+      this._solarStaleLogged = true
+      console.info('[solar] data stale or unreachable — scene is showing the neutral look')
+    } else if (fresh) {
+      this._solarStaleLogged = false
+    }
+  }
+
+  /**
+   * Solar (fork-only): HA time-source follow, panel glint, three-state night lighting.
+   * Every target derives from the last payload via src/game/solar.js — no house logic
+   * here. Display values damp toward their targets so stale data fades to neutral
+   * instead of snapping; manual/internal frames sit at 0/1 exactly.
+   */
+  _updateSolar(dt) {
+    const glintTarget = this.settings.get('solarGlint') === false ? 0 : solarGlintLevel(this.solar)
+    const dimTarget = solarDimFactor(this.solar)
+    const k = 1 - Math.exp(-dt * 1.5)
+    this._solarGlint += (glintTarget - this._solarGlint) * k
+    this._solarDim += (dimTarget - this._solarDim) * k
+    if (Math.abs(this._solarGlint) < 0.001) this._solarGlint = 0
+    if (Math.abs(this._solarDim - 1) < 0.001) this._solarDim = 1
+    buildingUniforms.uGlint.value = this._solarGlint
+    buildingUniforms.uDim.value = this._solarDim
+
+    if (this.settings.get('timeSource') !== 'ha') return
+    const target = solarTimeTarget(this.solar)
+    if (target === null || performance.now() < this._peekUntil) return
+    this.sky.setTime(THREE.MathUtils.damp(this.sky.time, target, 0.35, dt))
+    // Silent back-write, no emit: the slider and the nearest-preset highlight read the
+    // live HA clock position straight off settings, the way autoTime does.
+    this.settings.values.timeOfDay = this.sky.time
   }
 
   // ── roster ──────────────────────────────────────────────────────────────────────────
@@ -701,6 +757,7 @@ export class Colony {
     buildingUniforms.uNight.value = night
     // One write turns every rotor in the colony.
     buildingUniforms.uTime.value = elapsed
+    this._updateSolar(dt)
     this.ship.update(dt, elapsed, night)
 
     this._growBuildings(dt)
@@ -808,7 +865,7 @@ export class Colony {
 
   _updatePlots(night, elapsed) {
     const urgent = this.urgentPlots
-    for (const plot of this.plotOrder) plot.setNight(night, urgent?.has(plot.id) ?? false, elapsed)
+    for (const plot of this.plotOrder) plot.setNight(night, urgent?.has(plot.id) ?? false, elapsed, this._solarDim)
   }
 
   _updateScaffolds() {
