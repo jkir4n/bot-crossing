@@ -34,11 +34,10 @@ export const buildingUniforms = {
   uNight: { value: 0 },
   /** Seconds, for anything that turns. One write drives every rotor in the colony. */
   uTime: { value: 0 },
-  // Solar (fork-only): live panel glint 0..1 and the night-lighting dim multiplier
-  // (1 normally, a notch below on battery discharge). Both rest at neutral, so every
-  // manual/internal frame renders exactly as before.
+  // Solar (fork-only): live panel glint 0..1, resting at neutral so every
+  // manual/internal frame renders exactly as before. Town night lighting
+  // stays full bright on every source — no source-based dimming anywhere.
   uGlint: { value: 0 },
-  uDim: { value: 1 },
 }
 
 /**
@@ -338,7 +337,6 @@ export function decorate(material, uniforms) {
          uniform vec3 uAccent;
          uniform float uNight;
          uniform float uGlint;
-         uniform float uDim;
          uniform float uCellAccent[ ${CELL_COUNT} ];
          uniform float uCellSolar[ ${CELL_COUNT} ];
          uniform float uCellRoughness[ ${CELL_COUNT} ];
@@ -380,9 +378,9 @@ export function decorate(material, uniforms) {
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
          // Lamps and beacons, flagged per vertex when the recipe placed them.
-         totalEmissiveRadiance += diffuseColor.rgb * vEmissive * ( 0.25 + uNight * uDim * 2.4 );
+         totalEmissiveRadiance += diffuseColor.rgb * vEmissive * ( 0.25 + uNight * 2.4 );
          // Window strips and trim come on after dark, in the repo's own colour.
-         totalEmissiveRadiance += uAccent * uCellAccent[ cell ] * uNight * uDim * 1.15;
+         totalEmissiveRadiance += uAccent * uCellAccent[ cell ] * uNight * 1.15;
          // Zone-scoped production glint: photovoltaic glass carries a daytime
          // glint proportional to output on the power zone's own array mesh,
          // whose uGlint the zone damps privately. Town buildings share a uGlint
@@ -453,10 +451,10 @@ function depthMaterial(uniforms) {
 /**
  * Fresh per-structure uniform block for anything that shades like a building but
  * answers to its own live values — the power zone's array glint, in particular.
- * `night`/`time`/`dim` are shared refs (the whole colony still dims as one);
+ * `night`/`time` are shared refs (the whole colony still moves as one);
  * glint is always a private object starting at 0 so town glass stays dark.
  */
-export function structureUniforms({ accent, height, minY, night, time, dim }) {
+export function structureUniforms({ accent, height, minY, night, time }) {
   return {
     uProgress: { value: 1 },
     uMaxY: { value: height },
@@ -465,7 +463,6 @@ export function structureUniforms({ accent, height, minY, night, time, dim }) {
     uNight: night,
     uTime: time,
     uGlint: { value: 0 },
-    uDim: dim,
     uCellAccent: { value: ACCENT_MASK },
     uCellSolar: { value: SOLAR_MASK },
     uCellRoughness: { value: ROUGHNESS },
@@ -515,7 +512,6 @@ export function createBuilding({ seed = 1, accent = 0xc96442, kind = null } = {}
     uNight: buildingUniforms.uNight,
     uTime: buildingUniforms.uTime,
     uGlint: buildingUniforms.uGlint,
-    uDim: buildingUniforms.uDim,
     uCellAccent: { value: ACCENT_MASK },
     uCellSolar: { value: SOLAR_MASK },
     uCellRoughness: { value: ROUGHNESS },

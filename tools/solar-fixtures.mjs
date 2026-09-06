@@ -4,7 +4,7 @@
  * Plain node, no imports beyond the module itself — it is dependency-free on purpose.
  * Feeds fake SolarStates through the whole matrix — the three source states, stale and
  * missing payloads, null fields, the glint ceiling — and asserts the visuals land
- * exactly where the design matrix says: glint level, night-dim factor, HA clock
+ * exactly where the design matrix says: glint level, HA clock
  * target, the one-line readout, and the power zone's fill/lit-count/guard/glow/spin/flow helpers.
  * The power statistics panel asserts through the same door: live-state mapping
  * (nulls to dashes) with spin/glow unchanged. The panel renders live rows only —
@@ -21,7 +21,6 @@
 import {
   isSolarFresh,
   solarGlintLevel,
-  solarDimFactor,
   solarTimeTarget,
   solarReadout,
   batteryFillLevel,
@@ -34,7 +33,6 @@ import {
   powerPanel,
   powerHistorySeries,
   SOLAR_GLINT_FULL_W,
-  SOLAR_BATTERY_DIM,
   SOLAR_DAY_TARGET,
   SOLAR_NIGHT_TARGET,
 } from '../src/game/solar.js'
@@ -70,7 +68,6 @@ function scenario(title, solar, expect) {
   console.log(`\n${title}`)
   check('  fresh', isSolarFresh(solar), expect.fresh)
   check('  glint', solarGlintLevel(solar), expect.glint)
-  check('  dim', solarDimFactor(solar), expect.dim)
   check('  haClockTarget', solarTimeTarget(solar), expect.haClockTarget)
   const ro = solarReadout(solar)
   check('  readout.text', ro.text, expect.text)
@@ -95,19 +92,17 @@ function zone(title, solar, expect) {
 scenario('1. solar surplus (day, charging)', state({ solarPowerW: 1500, batteryPowerW: 400, batterySoC: 82 }), {
   fresh: true,
   glint: 0.5,
-  dim: 1,
   haClockTarget: SOLAR_DAY_TARGET,
   text: '☀︎ 1500 W · 82 % · ▲',
   markInText: '▲',
 })
 
 scenario(
-  '2. battery discharging (evening, HA says battery, conserving)',
+  '2. battery discharging (evening, HA says battery)',
   state({ isDay: false, solarPowerW: 0, batterySoC: 55, batteryPowerW: -300, source: 'battery' }),
   {
     fresh: true,
     glint: 0,
-    dim: SOLAR_BATTERY_DIM,
     haClockTarget: SOLAR_NIGHT_TARGET,
     text: '☀︎ 0 W · 55 % · ▼',
     markInText: '▼',
@@ -115,12 +110,11 @@ scenario(
 )
 
 scenario(
-  '3. grid mode (after cutoff, mains, never dims)',
+  '3. grid mode (after cutoff, mains)',
   state({ isDay: false, solarPowerW: 0, batterySoC: 18, batteryPowerW: 0, source: 'grid' }),
   {
     fresh: true,
     glint: 0,
-    dim: 1,
     haClockTarget: SOLAR_NIGHT_TARGET,
     text: '☀︎ 0 W · 18 % · ▦',
     markInText: '▦',
@@ -128,15 +122,15 @@ scenario(
 )
 
 scenario(
-  '3b. grid mode with residual battery flow still never dims',
+  '3b. grid mode with residual battery flow',
   state({ isDay: false, solarPowerW: 0, batterySoC: 19, batteryPowerW: -40, source: 'grid' }),
-  { fresh: true, glint: 0, dim: 1, haClockTarget: SOLAR_NIGHT_TARGET, text: '☀︎ 0 W · 19 % · ▦', markInText: '▦' }
+  { fresh: true, glint: 0, haClockTarget: SOLAR_NIGHT_TARGET, text: '☀︎ 0 W · 19 % · ▦', markInText: '▦' }
 )
 
 scenario(
-  '4. source=solar keeps lights warm-normal even mid battery draw',
+  '4. source=solar with battery draw',
   state({ solarPowerW: 2200, batteryPowerW: -60, source: 'solar' }),
-  { fresh: true, glint: 2200 / SOLAR_GLINT_FULL_W, dim: 1, haClockTarget: SOLAR_DAY_TARGET, text: '☀︎ 2200 W · 100 % · ▼', markInText: '▼' }
+  { fresh: true, glint: 2200 / SOLAR_GLINT_FULL_W, haClockTarget: SOLAR_DAY_TARGET, text: '☀︎ 2200 W · 100 % · ▼', markInText: '▼' }
 )
 
 scenario(
@@ -145,7 +139,6 @@ scenario(
   {
     fresh: true,
     glint: 0,
-    dim: 1,
     haClockTarget: SOLAR_NIGHT_TARGET,
     text: '☀︎ 0 W · 40 % · ▼',
     markInText: '▼',
@@ -155,7 +148,6 @@ scenario(
 scenario('6. stale payload fades everything to neutral', state({ stale: true, lastUpdatedAt: 0, lastError: 'fetch failed' }), {
   fresh: false,
   glint: 0,
-  dim: 1,
   haClockTarget: null,
   text: '☀︎ — · —',
   readoutStale: true,
@@ -164,7 +156,6 @@ scenario('6. stale payload fades everything to neutral', state({ stale: true, la
 scenario('7. null payload (fetch threw) — same neutral', null, {
   fresh: false,
   glint: 0,
-  dim: 1,
   haClockTarget: null,
   text: '☀︎ — · —',
   readoutStale: true,
@@ -173,7 +164,6 @@ scenario('7. null payload (fetch threw) — same neutral', null, {
 scenario('8. fresh but backend has no grid entity: honest solar/battery only', state({ source: null, batteryPowerW: 150 }), {
   fresh: true,
   glint: 0,
-  dim: 1,
   haClockTarget: SOLAR_DAY_TARGET,
   text: '☀︎ 0 W · 100 % · ▲',
   markInText: '▲',
@@ -182,7 +172,6 @@ scenario('8. fresh but backend has no grid entity: honest solar/battery only', s
 scenario('9. null fields inside a fresh payload render as em-dashes, never NaN', state({ solarPowerW: null, batterySoC: null, batteryPowerW: null, isDay: null }), {
   fresh: true,
   glint: 0,
-  dim: 1,
   haClockTarget: null,
   text: '☀︎ — · —',
 })
@@ -207,7 +196,7 @@ zone('11. zone grid mode (rig glows + fan turns, guard reads HA numbers)', state
   hasHistory: false,
 })
 
-zone('12. zone battery mode (conserving, rig dark + still)', state({ isDay: false, batterySoC: 55, batteryPowerW: -300, cutoff: 20, source: 'battery' }), {
+zone('12. zone battery mode (rig dark + still)', state({ isDay: false, batterySoC: 55, batteryPowerW: -300, cutoff: 20, source: 'battery' }), {
   fill: 0.55,
   guard: false,
   glow: false,
@@ -339,16 +328,7 @@ check('tooltip carries source only when HA provides it', solarReadout(state({ so
 check('null-source tooltip omits source', solarReadout(state()).title.includes('source:'), false)
 check('stale tooltip says so', solarReadout(state({ stale: true })).title.startsWith('Solar data stale'), true)
 check('non-finite watts are rejected', solarGlintLevel(state({ solarPowerW: Number.NaN })), 0)
-check('batteryPowerW NaN neither dims nor arrows', (() => {
-  const s = state({ batteryPowerW: Number.NaN })
-  return solarDimFactor(s) === 1 && !/[▲▼]/.test(solarReadout(s).text)
-})(), true)
-// Null source never dims, even mid-discharge: discharge without HA's source word is neutral.
-check('null source + discharge is neutral, not conserving', solarDimFactor(state({ batteryPowerW: -250, source: null })), 1)
-check('undefined source + discharge is neutral too', solarDimFactor(state({ batteryPowerW: -250, source: undefined })), 1)
-check('battery source + discharge dims', solarDimFactor(state({ batteryPowerW: -1, source: 'battery' })), SOLAR_BATTERY_DIM)
-check('battery source without discharge never dims', solarDimFactor(state({ batteryPowerW: 0, source: 'battery' })), 1)
-check('stale battery discharge never dims', solarDimFactor(state({ batteryPowerW: -500, source: 'battery', stale: true })), 1)
+check('batteryPowerW NaN draws no arrow', !/[▲▼]/.test(solarReadout(state({ batteryPowerW: Number.NaN })).text), true)
 // Zone helpers: clamps, cutoffs, glow, flow, history shape.
 check('fill clamps at full', batteryFillLevel(state({ batterySoC: 140 })), 1)
 check('fill clamps at empty', batteryFillLevel(state({ batterySoC: -4 })), 0)
@@ -387,7 +367,6 @@ check('bank clamps below empty', batteryLitCount(state({ batterySoC: -4 }), 4), 
 check('empty history array reads as absent', hasSolarHistory(state({ history: [] })), false)
 check('non-array history reads as absent', hasSolarHistory(state({ history: { samples: [] } })), false)
 check('history never moves the glint', solarGlintLevel(state({ solarPowerW: 1500, history: [[1, 2]] })), 0.5)
-check('history never moves the dim', solarDimFactor(state({ batteryPowerW: -300, source: 'battery', history: [[1]] })), SOLAR_BATTERY_DIM)
 
 console.log(`\n${checks - failures}/${checks} checks passed`)
 if (failures) {

@@ -15,7 +15,7 @@ import {
 } from '../world/plots.js'
 import { createBuilding, buildingUniforms, Scaffolds } from '../world/buildings.js'
 import { PowerZone, POWER_ACCENT } from '../world/power-zone.js'
-import { isSolarFresh, solarDimFactor, solarTimeTarget, SOLAR_PEEK_MS } from './solar.js'
+import { isSolarFresh, solarTimeTarget, SOLAR_PEEK_MS } from './solar.js'
 import { Ship } from '../world/ship.js'
 import { Astronauts } from '../agents/astronauts.js'
 import { Indicators, BADGE } from '../agents/indicators.js'
@@ -160,13 +160,14 @@ export class Colony {
     this._dustTint = new THREE.Color(this.planet.ground.high)
     this._c = new THREE.Color()
     this.stats = { agents: 0, projects: 0, working: 0, waiting: 0, blocked: 0, done: 0 }
-    // Solar (fork-only): latest /api/solar payload plus the damped dim value the
-    // shader actually reads. Starts neutral, so manual/internal modes — and any
-    // backend that never serves solar — render exactly as before. Panel glint
-    // itself lives on the power zone's array mesh, never on town glass.
+    // Solar (fork-only): latest /api/solar payload. Starts neutral, so
+    // manual/internal modes — and any backend that never serves solar —
+    // render exactly as before. Panel glint itself lives on the power
+    // zone's array mesh, never on town glass. Town night lighting stays
+    // full bright on every source; the zone's rig/bank/panel story is the
+    // only power lighting in the colony.
     this.solar = null
     this.powerZone = null
-    this._solarDim = 1
     this._solarStaleLogged = false
     this._peekUntil = 0
 
@@ -305,19 +306,12 @@ export class Colony {
   }
 
   /**
-   * Solar (fork-only): HA time-source follow and three-state night lighting.
-   * The dim target derives from the last payload via src/game/solar.js — no
-   * house logic here. It damps toward its target so stale data fades back to
-   * neutral instead of snapping; manual/internal frames sit at 1 exactly.
-   * Panel glint is not global: the zone damps and writes its own uGlint.
+   * Solar (fork-only): HA time-source follow. The clock damps toward HA's
+   * day/night target so stale data fades back instead of snapping;
+   * manual/internal frames are untouched. Panel glint is not global: the
+   * zone damps and writes its own uGlint.
    */
   _updateSolar(dt) {
-    const dimTarget = solarDimFactor(this.solar)
-    const k = 1 - Math.exp(-dt * 1.5)
-    this._solarDim += (dimTarget - this._solarDim) * k
-    if (Math.abs(this._solarDim - 1) < 0.001) this._solarDim = 1
-    buildingUniforms.uDim.value = this._solarDim
-
     if (this.settings.get('timeSource') !== 'ha') return
     const target = solarTimeTarget(this.solar)
     if (target === null || performance.now() < this._peekUntil) return
@@ -916,7 +910,7 @@ export class Colony {
 
   _updatePlots(night, elapsed) {
     const urgent = this.urgentPlots
-    for (const plot of this.plotOrder) plot.setNight(night, urgent?.has(plot.id) ?? false, elapsed, this._solarDim)
+    for (const plot of this.plotOrder) plot.setNight(night, urgent?.has(plot.id) ?? false, elapsed)
   }
 
   _updateScaffolds() {

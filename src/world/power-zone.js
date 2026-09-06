@@ -11,7 +11,6 @@ import { part, hasPart, atlasTexture } from './kit.js'
 import { mulberry } from './planet.js'
 import {
   solarGlintLevel,
-  solarDimFactor,
   batteryLitCount,
   batteryBelowCutoff,
   rigGlowOn,
@@ -32,7 +31,9 @@ import {
  *   west  solar array, pure 3x2 `solarpanel` rows — nothing else in its box
  *   back  battery bank, four `cargo_A` blocks in one 1x4 row, west-to-east
  *         fill order, fronts to the walkway
- *   front-east  rig, clear of the bank's sightline from the default camera
+ *   front-east  first rig, clear of the bank's sightline from the default camera
+ *   mid-west    second rig, opposite the first across the tile — the open
+ *               middle strip's west end, clear of the walkway centre
  *   kerb  containers / small depot / lights as scenery, all inside the deck
  *
  *   solar array  rows of `solarpanel`; live output glints on the panel cells
@@ -42,18 +43,23 @@ import {
  *                i (west to east) lights for its quartile, one per 25 % SoC,
  *                brighter while charging; at or under HA's cutoff the row
  *                dims and the empty blocks carry a faint guard glow
- *   rig          a `drill_structure` + `drill_module` base with a
+ *   rigs         two `drill_structure` + `drill_module` bases, each with a
  *                `windturbine_low` mast on its roof and that mast's fan on
- *                top — one composite silhouette. Grid mode reads twice:
- *                the whole composite carries a steady POWER_ACCENT emissive
- *                AND the fan turns, both if and only if HA names grid —
- *                dark and still on solar, battery, null, stale.
+ *                top — one composite silhouette each, same recipe twice. Grid
+ *                mode reads twice on BOTH: each composite carries a steady
+ *                POWER_ACCENT emissive AND its fan turns, both if and only if
+ *                HA names grid — dark and still on solar, battery, null,
+ *                stale. No second behavior, no fake states.
  *   fence        containers / cargodepot / lights ringing the kerb as scenery
  *
  * Clearances were measured from the glb's own bounding boxes in scene units
- * (1.9+ between structures, 0.6+ to scenery, every corner inside the hex)
- * and the sightlines checked from the default camera, so the rig never
- * covers the bank or the array. See the bank-row handoff for the numbers.
+ * (0.5+ between structures, 0.8+ to scenery, every corner inside the hex)
+ * and the sightlines checked from the default camera, so neither rig covers
+ * the bank or the array. See the tweak-3 handoff for the numbers.
+ *
+ * Town night lighting stays full bright on every source — no source-based
+ * dimming anywhere. The rigs' glow, the bank's fill and the panel glint are
+ * the only power story in the colony.
  *
  * Pure display throughout: every target derives from the SolarState via
  * src/game/solar.js. The recorder payload (`history`) is accepted and ignored —
@@ -82,6 +88,14 @@ const BANK_SCALE = 2.0
 const BANK_PITCH = 1.6
 /** Row centre on the back strip: array/rig clear in z, fence clear all round. */
 const BANK_AT = { x: -0.55, z: -2.9 }
+/**
+ * Second rig spot: the middle strip's west end, opposite the first rig
+ * across the tile. Measured box gaps from the glb's own bounding boxes in
+ * scene units: 0.5+ to the bank/array, 2.8+ to the first rig, 0.8+ to the
+ * fence crates, every corner inside the hex; the walkway centre and the
+ * bank's sightline from the default camera stay clear.
+ */
+const RIG2_AT = { x: -2.4, z: -0.6 }
 
 /** Every kit node this module places. Checked at build time (see tools/). */
 export const POWER_NODES = [
@@ -115,9 +129,11 @@ export class PowerZone {
     this.solar = null
     this._glint = 0
     this._rigGlow = 0
-    // The rig's own clock: the vertex shader turns every rotor it sees with
-    // the shared uTime, which can never stop for one mesh — so the rig mesh
-    // carries a private clock that only advances while HA names grid.
+    // The rigs' shared clock: the vertex shader turns every rotor it sees with
+    // the shared uTime, which can never stop for one mesh — so each rig mesh
+    // carries a private clock instead, and both rigs read the same object, so
+    // the two fans turn and hold mid-pose together. It only advances while HA
+    // names grid.
     this._rigClock = { value: 0 }
     this._rigTime = 0
     this._bank = { lit: -1, intensity: -1, guard: null }
@@ -141,12 +157,15 @@ export class PowerZone {
     this.array = this._raise(this._composeArray(), -2.9, 2.0)
     this.bank = this._buildBank()
     this.rig = this._raise(this._composeRig({ clock: this._rigClock }), 3.0, 1.1)
+    this.rig2 = this._raise(this._composeRig({ clock: this._rigClock }), RIG2_AT.x, RIG2_AT.z)
     this.fence = this._raise(this._composeFence(), 0, 0)
 
-    // Grid-mode light: the rig's own material carries a steady POWER_ACCENT
+    // Grid-mode light: each rig's own material carries a steady POWER_ACCENT
     // emissive, damped on/off like the array glint. Dark otherwise.
-    this.rig.mesh.material.emissive = new THREE.Color(POWER_ACCENT)
-    this.rig.mesh.material.emissiveIntensity = 0
+    for (const rig of [this.rig, this.rig2]) {
+      rig.mesh.material.emissive = new THREE.Color(POWER_ACCENT)
+      rig.mesh.material.emissiveIntensity = 0
+    }
 
     this.label = createLabel('Power', POWER_ACCENT)
     this.label.position.set(this.plot.labelAnchor.x, 3.2, this.plot.labelAnchor.z)
@@ -176,7 +195,6 @@ export class PowerZone {
       night: buildingUniforms.uNight,
       // A private clock freezes the shader spin mid-pose; the shared one never stops.
       time: clock || buildingUniforms.uTime,
-      dim: buildingUniforms.uDim,
     })
     const material = decorate(
       new THREE.MeshStandardMaterial({
@@ -344,19 +362,20 @@ export class PowerZone {
       for (const mesh of this.bankBlocks) mesh.material.color.setScalar(guard ? 0.55 : 1)
     }
 
-    // Station rig: grid glow plus rooftop fan, or darkness and still air.
+    // Station rigs: grid glow plus rooftop fans, or darkness and still air.
     // Damped glow so the changeover reads as a lamp warming, not a blink;
-    // the fan holds mid-pose the moment grid leaves — the private clock the
-    // shader reads simply stops advancing.
+    // the fans hold mid-pose the moment grid leaves — the private clock the
+    // shaders read simply stops advancing.
     const rigTarget = rigGlowOn(this.solar) ? 1 : 0
     this._rigGlow += (rigTarget - this._rigGlow) * k
     if (Math.abs(this._rigGlow - rigTarget) < 0.001) this._rigGlow = rigTarget
     this.rig.mesh.material.emissiveIntensity = this._rigGlow * RIG_GLOW
+    this.rig2.mesh.material.emissiveIntensity = this._rigGlow * RIG_GLOW
     if (turbineSpinning(this.solar)) this._rigTime += dt
     this._rigClock.value = this._rigTime
 
-    // Deck kerb + lamps follow the town's night dimming, never urgent.
-    this.plot.setNight(night, false, elapsed, solarDimFactor(this.solar))
+    // Deck kerb + lamps follow the town's night lighting, never urgent.
+    this.plot.setNight(night, false, elapsed)
 
     // Name plate: the quiet-plot rule — on hover, while chrome is up.
     const wanted = uiVisible && showLabels && hovered ? 1 : 0
@@ -379,6 +398,8 @@ export class PowerZone {
     this.plot.dispose()
     this.rig.mesh.geometry.dispose()
     this.rig.mesh.material.dispose()
+    this.rig2.mesh.geometry.dispose()
+    this.rig2.mesh.material.dispose()
     for (const m of this.bankBlocks) {
       m.geometry.dispose()
       m.material.dispose()

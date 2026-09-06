@@ -3,8 +3,8 @@
  *
  * The renderer stays dumb: every number rendered comes from the payload (the
  * backend's env-config), never from house logic here. The only constants in
- * this file are display-side: a glow ceiling, a dim depth, and sky-clock
- * stops. A stale payload or null fields always collapse to neutral.
+ * this file are display-side: a glow ceiling and sky-clock stops. A stale
+ * payload or null fields always collapse to neutral.
  *
  * Dependency-free on purpose, so the fixture harness (tools/solar-fixtures.mjs)
  * can feed fake SolarStates through the whole matrix under plain node.
@@ -12,8 +12,6 @@
 
 /** Display-normalization ceiling for panel glint, from the solar design notes. */
 export const SOLAR_GLINT_FULL_W = 3000
-/** Night-lighting multiplier while the house runs on battery ("a notch"). */
-export const SOLAR_BATTERY_DIM = 0.7
 /** Sky-clock stops the HA time-source damps toward (0.5 noon, 0.94 night). */
 export const SOLAR_DAY_TARGET = 0.5
 export const SOLAR_NIGHT_TARGET = 0.94
@@ -34,19 +32,6 @@ export function solarGlintLevel(solar) {
   const w = solar.solarPowerW
   if (!Number.isFinite(w) || w <= 0) return 0
   return Math.min(1, w / SOLAR_GLINT_FULL_W)
-}
-
-/**
- * Night-lighting multiplier. Dims a notch only when HA itself says the house
- * is on battery (source === 'battery') and current is flowing out of it. Grid
- * and solar never dim; a null source never dims either — without HA's own
- * source word, discharge is just a measurement, never a conserving state.
- */
-export function solarDimFactor(solar) {
-  if (!isSolarFresh(solar)) return 1
-  if (solar.source !== 'battery') return 1
-  const discharging = Number.isFinite(solar.batteryPowerW) && solar.batteryPowerW < 0
-  return discharging ? SOLAR_BATTERY_DIM : 1
 }
 
 /** Where the HA time-source holds the clock, or null when it should not push. */
