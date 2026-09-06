@@ -23,7 +23,19 @@
  *   source: 'solar'|'battery'|'grid'|null — comes FROM HA's grid/mode entity
  *     value (string-mapped). The colony derives nothing: unconfigured, missing,
  *     numeric, or unrecognised grid entity => null, and the UI shows honestly
- *     only what HA provides.
+ *     only what HA provides. Two entity kinds map: a mode entity whose state
+ *     names the source (solar|battery|grid, incl. mains|utility|bypass), or a
+ *     grid-input switch/binary sensor with the explicit binary mapping
+ *     on => 'grid' (grid connected), off => 'battery' (house on own power).
+ *     The binary reading is HA's own relay state, never arithmetic over SoC/W.
+ *   history: raw HA-recorder payload proxied VERBATIM (array of per-entity
+ *     sample arrays as /api/history/period returns them, zero colony-side
+ *     shaping — no join, no slice, no sort, no aggregation). Present ⟺ the
+ *     round's recorder fetch succeeded; recorder down/disabled/empty-config
+ *     => the key is ABSENT (never a frozen ring, never synthesised). OPTIONAL
+ *     for consumers: absent must be tolerated (disabled poller => absent).
+ *     Window: HA_HISTORY_HOURS (default 1 — the power entity is noisy, ~700
+ *     rows/hour; keep it small, RAM is tight). 0/negative => disabled.
  *   stale: boolean — true until first success; true after HA_STALE_AFTER
  *     consecutive failed rounds (401/403 goes stale immediately, once).
  *   lastUpdatedAt: epoch ms of last successful round, 0 if never.
@@ -35,6 +47,7 @@
  *   HA_SUN_ENTITY (default sun.sun) / HA_GRID_ENTITY (default empty = source null)
  *   HA_CUTOFF_ENTITY / HA_CUTIN_ENTITY (threshold pass-through, optional fields)
  *   HA_POLL_MS (60000) / HA_TIMEOUT_MS (5000) / HA_STALE_AFTER (2)
+ *   HA_HISTORY_HOURS (1, 0 disables) — recorder window for history proxy
  *   HA_SOLAR_DAY_ON_W (20) / HA_SOLAR_DAY_OFF_W (15) — isDay fallback only.
  */
 
@@ -56,6 +69,7 @@ const cfg = () => ({
   pollMs: Math.max(5000, num(process.env.HA_POLL_MS, 60000)),
   timeoutMs: Math.max(1000, num(process.env.HA_TIMEOUT_MS, 5000)),
   staleAfter: Math.max(1, Math.floor(num(process.env.HA_STALE_AFTER, 2))),
+  historyHours: num(process.env.HA_HISTORY_HOURS, 1),
   dayOnW: num(process.env.HA_SOLAR_DAY_ON_W, 20),
   dayOffW: num(process.env.HA_SOLAR_DAY_OFF_W, 15),
 });
@@ -82,6 +96,17 @@ let started = false;
 let warnedEntities = new Set();
 let authDeadLogged = false;
 
+/** History proxy holder: the LAST recorder payload, verbatim. This is a
+// transport cache, not a constructed ring — the colony never appends to,
+// slices, sorts, or aggregates it. undefined = absent (disabled, failed, or
+// never fetched). Present in a snapshot ⟺ the latest round fetched it OK. */
+let historyCache;
+
+/** Public snapshot: SolarState + the verbatim recorder payload when present. */
+function snapshot() {
+  return historyCache === undefined ? { ...state } : { ...state, history: historyCache };
+}
+
 const TAG = 'bot-crossing: ha-solar:';
 
 /** HA reads 'unavailable'/'unknown' as strings — those parse to null, never NaN. */
@@ -98,14 +123,18 @@ function parseNumeric(entity) {
 }
 
 /**
- * source comes FROM HA, never derived. Only an explicit mode string maps;
- * numeric grid watts (e.g. sensor.grid_input_grid_power) or anything
- * unrecognised => null — a guessed 'grid' state would be dishonest.
+ * source comes FROM HA, never derived. Two explicit mappings, nothing else:
+ * a mode string naming the source, or a grid-input switch/binary sensor with
+ * on => 'grid' (grid connected) / off => 'battery' (house on own power).
+ * Numeric grid watts (e.g. a grid-power sensor) or anything unrecognised
+ * => null — a guessed 'grid' state would be dishonest.
  */
 function parseSource(entity) {
   if (!entity || typeof entity.state !== 'string') return null;
   const s = entity.state.trim().toLowerCase();
   if (s === '' || s === 'unknown' || s === 'unavailable' || s === 'none') return null;
+  if (s === 'on') return 'grid';
+  if (s === 'off') return 'battery';
   if (Number.isFinite(Number(s))) return null;
   if (/(^|[^a-z])solar([^a-z]|$)|(^|[^a-z])pv([^a-z]|$)/.test(s)) return 'solar';
   if (s.includes('battery') || s.includes('bat ')) return 'battery';
@@ -159,14 +188,46 @@ function warnOnce(key, msg) {
   console.warn(`${TAG}${msg}`);
 }
 
+/**
+ * Recorder proxy: one GET /api/history/period for the tile entities, returned
+ * VERBATIM (whatever HA sends — array of per-entity sample arrays). No join,
+ * no slice, no sort, no aggregation. Throws on any failure => caller treats
+ * history as absent; the states round itself is unaffected (optional field).
+ */
+async function fetchHistoryRaw(c) {
+  if (!Number.isFinite(c.historyHours) || c.historyHours <= 0) return undefined;
+  const wanted = [c.solarEntity, c.socEntity, c.powerEntity];
+  if (c.gridEntity) wanted.push(c.gridEntity);
+  const ids = wanted.filter(Boolean);
+  if (!ids.length) return undefined;
+  const end = new Date();
+  const start = new Date(end.getTime() - c.historyHours * 3600 * 1000);
+  const url =
+    `${c.baseUrl}/api/history/period/${encodeURIComponent(start.toISOString())}` +
+    `?end_time=${encodeURIComponent(end.toISOString())}` +
+    `&filter_entity_id=${encodeURIComponent(ids.join(','))}` +
+    `&minimal_response&no_attributes`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${c.token}` },
+    signal: AbortSignal.timeout(c.timeoutMs),
+  });
+  if (!res.ok) {
+    const err = new Error(`HA history HTTP ${res.status} — recorder unavailable? history absent`);
+    err.code = 'HA_HISTORY';
+    throw err;
+  }
+  return res.json();
+}
+
 /** One REST round: fetch every configured entity, fold into SolarState. */
 export async function fetchOnce() {
   const c = cfg();
   if (!c.baseUrl || !c.token) {
     state = { ...neutral('HA not configured'), lastUpdatedAt: state.lastUpdatedAt };
-    return { ...state };
+    historyCache = undefined;
+    return snapshot();
   }
-  if (inFlight) return { ...state }; // skip a tick — never stack on a slow HA
+  if (inFlight) return snapshot(); // skip a tick — never stack on a slow HA
   inFlight = true;
   try {
     const ids = [c.solarEntity, c.socEntity, c.powerEntity, c.sunEntity];
@@ -196,7 +257,8 @@ export async function fetchOnce() {
       failures += 1;
       const keepUpdatedAt = state.lastUpdatedAt;
       state = { ...neutral(authDead.message), lastUpdatedAt: keepUpdatedAt };
-      return { ...state };
+      historyCache = undefined;
+      return snapshot();
     }
     authDeadLogged = false;
 
@@ -235,8 +297,10 @@ export async function fetchOnce() {
         const keepUpdatedAt = state.lastUpdatedAt;
         state = { ...neutral(msg), lastUpdatedAt: keepUpdatedAt };
       }
-      // Single blip: keep last good values, stale:false.
-      return { ...state };
+      // Single blip: keep last good values, stale:false. History is NOT kept:
+      // recorder unreachable => absent, never a frozen ring.
+      historyCache = undefined;
+      return snapshot();
     }
 
     failures = 0;
@@ -254,8 +318,15 @@ export async function fetchOnce() {
       lastUpdatedAt: Date.now(),
       lastError: null,
     };
+    // Optional recorder proxy: verbatim payload or absent. Never fails the round.
+    try {
+      historyCache = await fetchHistoryRaw(c);
+    } catch (err) {
+      historyCache = undefined;
+      warnOnce('history', ` ${err?.message || err}`);
+    }
     if (recovered) console.log(`${TAG}recovered — fresh values`);
-    return { ...state };
+    return snapshot();
   } finally {
     inFlight = false;
   }
@@ -264,7 +335,7 @@ export async function fetchOnce() {
 /** Never throws; the /api/solar route depends on that. */
 export function getSolarState() {
   try {
-    return { ...state };
+    return snapshot();
   } catch {
     return neutral('state read failed');
   }

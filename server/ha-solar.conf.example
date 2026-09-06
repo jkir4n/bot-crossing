@@ -23,10 +23,13 @@ Environment=HA_BATTERY_SOC_ENTITY=sensor.my_battery_soc
 Environment=HA_BATTERY_POWER_ENTITY=sensor.my_battery_power_w
 # Day/night ground truth via elevation attribute
 Environment=HA_SUN_ENTITY=sun.sun
-# OPTIONAL grid/mode entity: its state must read solar|battery|grid (or
-# mains|utility|bypass). Numeric grid watts do NOT map — source stays null
-# rather than guessed. Empty (default) disables source.
-#Environment=HA_GRID_ENTITY=
+# OPTIONAL grid/mode entity: EITHER a mode entity whose state names the source
+# (solar|battery|grid, incl. mains|utility|bypass — e.g. sensor.my_source_mode)
+# OR a grid-input switch/binary sensor with the explicit binary mapping
+# on => grid (grid connected), off => battery (house on own power)
+# (e.g. switch.my_grid_input). Numeric grid watts do NOT map — source stays
+# null rather than guessed. Empty (default) disables source.
+#Environment=HA_GRID_ENTITY=switch.my_grid_input
 # Grid threshold pass-through, in %: battery cut-out SoC and cut-in SoC.
 # Optional — omit and the readout simply hides the cutoff/cutIn pair.
 #Environment=HA_CUTOFF_ENTITY=number.my_grid_connect_soc_threshold
@@ -34,6 +37,11 @@ Environment=HA_SUN_ENTITY=sun.sun
 
 # Poll cadence (~60s), per-request timeout, failures before stale:true
 Environment=HA_POLL_MS=60000
+# Recorder window (hours) for the OPTIONAL solar.history[] proxy: raw
+# /api/history/period samples for the tile entities, passed through verbatim
+# (no colony-side shaping). 0 disables -> history key absent. Keep small:
+# noisy power entities return hundreds of rows/hour.
+Environment=HA_HISTORY_HOURS=1
 #Environment=HA_TIMEOUT_MS=5000
 #Environment=HA_STALE_AFTER=2
 # isDay fallback hysteresis in W, used only if the sun entity is unavailable
