@@ -48,7 +48,8 @@
    neutral tile, never touches thread scan.
 3. **Linux port:** `launch()` → `xdg-open` + platform switch; deep-link-less
    harnesses return `{ ok:false }` per interface.
-4. **Windows firewall:** expect to add one inbound rule for Desktop's serve port.
+4. **Windows firewall:** none needed — OpenCode serve stays on loopback; the
+   colony reads it via the SSH tunnel (verified 06 Sep 2026, see Phase 1).
 5. Reuse skills/scripts; verify with real checks; clean temp artifacts.
 
 ## TODO
@@ -75,7 +76,10 @@
       notifies). Only build our own if both sit unmerged for weeks and we need it.
 - [ ] Remote-reader adapters + `host:harness` id prefix + stale/last-seen UI.
 - [ ] Deploy prod build on Linux host; verify from phone + PC browsers.
-- [ ] Windows Firewall inbound rule for serve/shim ports.
+- [x] Windows Firewall inbound rule for serve/shim ports — verified **not required**
+      (06 Sep 2026): OpenCode serve binds to loopback only, and the colony reads it
+      through the SSH tunnel (port 22, already allowed). No LAN port exposure.
+      Revisit only if serve is ever deliberately bound to the LAN interface.
 
 ### Phase 2 — signature + actions
 - [ ] Solar tile (Home Assistant REST poller → drive day/night engine + panel glow + night
