@@ -89,8 +89,14 @@
       Revisit only if serve is ever deliberately bound to the LAN interface.
 
 ### Phase 2 — signature + actions
-- [ ] Solar tile (Home Assistant REST poller → drive day/night engine + panel glow + night
-      lighting; ambient-only; decide later whether <30% battery earns a badge).
+- [x] Solar tile (06 Sep 2026): HA REST poller (`server/ha-solar.mjs`, operator
+      env config only — no compiled-in entity IDs, `40cba11`+`53e141a`) →
+      `/api/solar`; UI (`0cd1192`, src/game/solar.js + hud/colony wiring): HA
+      time-source mode in Lighting settings (damped follow, 60s peek on
+      drag/L, manual controls greyed not hidden), panel glint, solar/battery/
+      grid 3-state lighting, one-line readout, nulls render neutral.
+      79/79 fixture checks (tools/solar-fixtures.mjs). Verified live: solar W,
+      battery SoC/power (NEGATIVE=discharge), cutoff/cutIn from HA entities.
 - [ ] Remote-open listener on WinPC (authenticated, LAN).
 - [ ] Hermes roster: walking-between-projects variant (design first; renderer `src/` changes —
       fork-only). Other harnesses stay per-session by user decision — no folding.
