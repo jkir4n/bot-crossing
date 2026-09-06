@@ -80,7 +80,9 @@
       IDs stay opaque — `host:harness` prefix dropped by design decision.
       Remaining: none for phase 1; revisit live-overlay when OpenCode Desktop
       serve port is mapped.
-- [ ] Deploy prod build on Linux host; verify from phone + PC browsers.
+- [x] Deploy prod build on Linux host; verify from phone + PC browsers — done
+      06 Sep 2026 (remote-reader phase 1 build; user confirmed WinPC rows
+      dimmed asleep, local Hermes rows unchanged).
 - [x] Windows Firewall inbound rule for serve/shim ports — verified **not required**
       (06 Sep 2026): OpenCode serve binds to loopback only, and the colony reads it
       through the SSH tunnel (port 22, already allowed). No LAN port exposure.
