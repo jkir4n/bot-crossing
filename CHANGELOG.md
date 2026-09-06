@@ -1,5 +1,35 @@
 # Changelog — Bot Crossing Colony
 
+## 2026-09-06 — Solar tile: Home Assistant drives the colony's power story
+
+- `40cba11` — solar: HA REST poller `server/ha-solar.mjs` (separate ~60s
+  poller, mtime-isolated from the thread scan; failure → neutral tile, never
+  touches threads) serving `GET /api/solar`: solarPowerW, batterySoC,
+  batteryPowerW (NEGATIVE = discharging), isDay from the sun entity,
+  source (solar/battery/grid) and stale flag. Cutoff/cut-in pass through from
+  HA number entities as display values — the colony derives nothing.
+- `53e141a` — solar: universalize. First build had the operator's HA entity
+  IDs compiled in as defaults (user directive: no system-specific code) —
+  stripped to empty-string defaults; every connection value (URL, token,
+  entity IDs, poll rate) now comes from operator env config
+  (`server/ha-solar.conf.example` template). No config → clean neutral tile,
+  never a crash. Kill-test verified: HA unreachable → neutral within 2
+  poll rounds, thread scan untouched.
+- `0cd1192` — solar-ui: HA time-source mode in the existing Lighting settings
+  (damped follow of HA's day cycle, 60s peek on drag/L, manual controls
+  greyed-but-visible while HA drives), panel glint on production, the
+  solar/battery/grid 3-state night-lighting story (surplus → charging warm;
+  conserving → dimmed; grid mode → normal glow, because the house is on
+  mains), and a one-line readout with discharge/charge/grid indicators.
+  New pure module `src/game/solar.js`; nulls render as dashes, never NaN.
+- Worker reliability notes: the first four dispatch runs died on a provider
+  outage (muse-spark 429/500 upstream, not code — partial work survived as
+  uncommitted changes and run #70 continued from it on a pinned model).
+- Verified: fixture matrix 79/79 (tools/solar-fixtures.mjs: band boundaries,
+  glint ceiling, missing payload, null rendering), production build green,
+  deployed on `:5274` with live HA values (solar W, SoC, discharge W,
+  cutoff 20 / cut-in 50), zero house-specific strings in `src/`.
+
 ## 2026-09-06 — Remote-reader pattern (phase 1): presence fields + panel states
 
 - `9fec9d3` — remotereader: optional `host` / `lastSeenAt` / `remote` on remote
