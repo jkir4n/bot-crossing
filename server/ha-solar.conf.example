@@ -4,36 +4,38 @@
 # ~/.config/systemd/user/bot-crossing.service.d/ha.conf and fill in YOUR values,
 # then `systemctl --user restart bot-crossing.service`.
 #
-# Entity IDs below are the verified defaults compiled into ha-solar.mjs — only
-# set the overrides you actually renamed in HA.
+# HA_BASE_URL and HA_TOKEN are required. Every entity ID is operator-supplied:
+# there are NO compiled-in defaults (source contains no house-specific names).
+# Entities not configured are simply not polled; their SolarState fields stay
+# null and the UI shows a neutral tile. Verify entity IDs against YOUR HA
+# (Developer Tools -> States).
 
 # HA REST root, no trailing slash (example: http://homeassistant.local:8123)
 Environment=HA_BASE_URL=
 # Long-lived access token (HA profile -> Security -> Long-lived access tokens)
 Environment=HA_TOKEN=
 
-# Solar production now, in W (default: sensor.power_production_now)
-#Environment=HA_SOLAR_POWER_ENTITY=
-# Battery state of charge, in % (default: sensor.stair_room_jk_bms_jk_bms_state_of_charge)
-#Environment=HA_BATTERY_SOC_ENTITY=
-# Battery power, in W, NEGATIVE = discharging (default: sensor.jk_bms_jk_bms_power)
-#Environment=HA_BATTERY_POWER_ENTITY=
-# Day/night ground truth via elevation attribute (default: sun.sun)
-#Environment=HA_SUN_ENTITY=
+# Solar production now, in W
+Environment=HA_SOLAR_POWER_ENTITY=sensor.my_solar_production_w
+# Battery state of charge, in %
+Environment=HA_BATTERY_SOC_ENTITY=sensor.my_battery_soc
+# Battery power, in W, NEGATIVE = discharging
+Environment=HA_BATTERY_POWER_ENTITY=sensor.my_battery_power_w
+# Day/night ground truth via elevation attribute
+Environment=HA_SUN_ENTITY=sun.sun
 # OPTIONAL grid/mode entity: its state must read solar|battery|grid (or
 # mains|utility|bypass). Numeric grid watts do NOT map — source stays null
 # rather than guessed. Empty (default) disables source.
 #Environment=HA_GRID_ENTITY=
-# Grid threshold pass-through, in % (defaults: number.grid_input_grid_connect_soc_threshold
-# = battery cuts OUT at SoC <= cutoff; number.grid_input_grid_disconnect_soc_threshold
-# = battery cuts back IN at SoC >= cutIn)
-#Environment=HA_CUTOFF_ENTITY=
-#Environment=HA_CUTIN_ENTITY=
+# Grid threshold pass-through, in %: battery cut-out SoC and cut-in SoC.
+# Optional — omit and the readout simply hides the cutoff/cutIn pair.
+#Environment=HA_CUTOFF_ENTITY=number.my_grid_connect_soc_threshold
+#Environment=HA_CUTIN_ENTITY=number.my_grid_disconnect_soc_threshold
 
 # Poll cadence (~60s), per-request timeout, failures before stale:true
 Environment=HA_POLL_MS=60000
 #Environment=HA_TIMEOUT_MS=5000
 #Environment=HA_STALE_AFTER=2
-# isDay fallback hysteresis in W, used only if sun.sun is unavailable
+# isDay fallback hysteresis in W, used only if the sun entity is unavailable
 #Environment=HA_SOLAR_DAY_ON_W=20
 #Environment=HA_SOLAR_DAY_OFF_W=15
