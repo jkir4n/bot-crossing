@@ -93,6 +93,12 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { jsonLines, listDirs, num, readHead } from '../lib/fsutil.mjs'
+import {
+  noteRemoteSeen,
+  remoteHostLabel,
+  remoteSeenIso,
+  withRemoteTopology,
+} from './remote-stat.mjs'
 
 /* ---------------------------------------------------------------- config */
 
@@ -643,6 +649,26 @@ const sshArgs = (cfg) => ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', cfg.
 
 let statCache = { at: 0, sig: '', ok: false }
 
+/**
+ * Colony-host stamp of the last successful remote contact (stat success or
+ * fresh pull). Survives failed scans so unreachable threads keep a stale
+ * lastSeenAt instead of losing it; the persisted pull time covers restarts.
+ */
+let lastRemoteSeenAt = 0
+
+const remoteHost = () => remoteHostLabel(['CURSOR_REMOTE_HOST_LABEL', 'REMOTE_HOST_LABEL'])
+
+function remoteTopology() {
+  let metaAt = 0
+  try {
+    const meta = readRemoteMeta()
+    if (meta && Number.isFinite(Number(meta.pulledAt))) metaAt = Number(meta.pulledAt)
+  } catch {
+    /* no meta yet — stamp stays memory-only */
+  }
+  return { host: remoteHost(), lastSeenAt: remoteSeenIso(statCache, lastRemoteSeenAt, metaAt) }
+}
+
 function remoteStat(cfg, force = false) {
   const now = Date.now()
   if (!force && now - statCache.at < statTTLMs() && statCache.sig) return statCache
@@ -670,6 +696,7 @@ function remoteStat(cfg, force = false) {
   // Cache negatives too (sig '' + ok false still records `at`): an
   // unreachable remote costs one slow scan per STAT_TTL, not one per poll.
   statCache = { at: now, sig: ok ? sig : statCache.sig, ok }
+  if (ok) lastRemoteSeenAt = noteRemoteSeen(statCache, lastRemoteSeenAt)
   return statCache
 }
 
@@ -862,6 +889,7 @@ function finishPull(sig, text) {
     fs.writeFileSync(next, JSON.stringify({ v: 1, pulledAt: Date.now(), snapshot }))
     fs.renameSync(next, SNAP_MANIFEST)
     fs.writeFileSync(SNAP_META, JSON.stringify({ sig, pulledAt: Date.now() }))
+    lastRemoteSeenAt = Date.now()
     console.warn(`bot-crossing: cursor snapshot refreshed (${Object.keys(snapshot).length} conversations)`)
   } catch (err) {
     warnThrottled('pull-swap', `snapshot pull could not go live (${err.message}) — keeping previous snapshot`)
@@ -1051,7 +1079,13 @@ async function scanThreads() {
     }
     throw new Error('No Cursor store readable right now')
   }
-  return [...byId].map(([uuid, { rec, remote }]) => toThread(uuid, rec, remote))
+  // Remote threads carry the shared topology fields; local threads stay
+  // exactly as today (no host/lastSeenAt/remote keys at all).
+  const topology = remoteTopology()
+  return [...byId].map(([uuid, { rec, remote }]) => {
+    const thread = toThread(uuid, rec, remote)
+    return remote ? withRemoteTopology(thread, topology) : thread
+  })
 }
 
 /* ---------------------------------------------------------------- actions */

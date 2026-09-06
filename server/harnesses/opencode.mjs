@@ -81,6 +81,13 @@ import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import {
+  maxSeenIso,
+  noteRemoteSeen,
+  remoteHostLabel,
+  remoteSeenIso,
+  withRemoteTopology,
+} from './remote-stat.mjs'
 
 /* ---------------------------------------------------------------- config */
 
@@ -280,6 +287,26 @@ function statTTLMs() {
 
 let statCache = { at: 0, sig: '', ok: false }
 
+/**
+ * Colony-host stamp of the last successful remote contact (stat success or
+ * fresh pull). Survives failed scans so unreachable threads keep a stale
+ * lastSeenAt instead of losing it; the persisted pull time covers restarts.
+ */
+let lastRemoteSeenAt = 0
+
+const remoteHost = () => remoteHostLabel(['OPENCODE_REMOTE_HOST_LABEL', 'REMOTE_HOST_LABEL'])
+
+function remoteTopology() {
+  let metaAt = 0
+  try {
+    const meta = readRemoteMeta()
+    if (meta && Number.isFinite(Number(meta.pulledAt))) metaAt = Number(meta.pulledAt)
+  } catch {
+    /* no meta yet — stamp stays memory-only */
+  }
+  return { host: remoteHost(), lastSeenAt: remoteSeenIso(statCache, lastRemoteSeenAt, metaAt) }
+}
+
 function remoteStat(cfg, force = false) {
   const now = Date.now()
   if (!force && now - statCache.at < statTTLMs() && statCache.sig !== '') return statCache
@@ -315,6 +342,7 @@ function remoteStat(cfg, force = false) {
   // Cache negatives too (sig '' + ok false still records `at`): an
   // unreachable WinPC costs one slow scan per STAT_TTL, not one per poll.
   statCache = { at: now, sig: ok ? sig : statCache.sig, ok }
+  if (ok) lastRemoteSeenAt = noteRemoteSeen(statCache, lastRemoteSeenAt)
   return statCache
 }
 
@@ -455,6 +483,7 @@ function finishPull(cfg, sig, nextDb, nextWal, startedAt) {
       walBytes,
       target: cfg.target.split('@')[1] || '',
     }))
+    lastRemoteSeenAt = Date.now()
     console.warn(`bot-crossing: opencode snapshot refreshed (${check.sessions} sessions)`)
   } catch (err) {
     warnThrottled('pull-swap', `snapshot pull could not go live (${err.message}) — keeping previous snapshot`)
@@ -702,7 +731,10 @@ async function scanViaServe() {
       }
     }
   }))
-  return threads
+  // Serve is the live overlay path: every thread here is remote. One
+  // topology computation per scan, not per thread (meta is a file read).
+  const topology = remoteTopology()
+  return threads.map((t) => withRemoteTopology(t, topology))
 }
 
 /* --------------------------------------------------------------- db path */
@@ -939,7 +971,8 @@ function scanViaDB() {
   const remoteSnap = ensureRemoteSnapshot()
   if (remoteSnap) {
     try {
-      take(scanSnapshotFile(remoteSnap, 'db-remote'))
+      const topology = remoteTopology()
+      take(scanSnapshotFile(remoteSnap, 'db-remote').map((t) => withRemoteTopology(t, topology)))
     } catch (err) {
       warnThrottled('remote-scan', `remote snapshot unreadable (${err.message}) — keeping previous on next pull`)
     }
@@ -976,7 +1009,7 @@ function overlayServe(base, live) {
   const liveShare = live.ref && typeof live.ref.shareUrl === 'string' ? live.ref.shareUrl.trim() : ''
   const baseShare = base.ref && typeof base.ref.shareUrl === 'string' ? base.ref.shareUrl.trim() : ''
   const shareUrl = baseShare || liveShare
-  return {
+  const merged = {
     ...base,
     title: pick(base.title, live.title),
     preview: base.preview || live.preview,
@@ -990,6 +1023,16 @@ function overlayServe(base, live) {
     canOpen: Boolean(shareUrl) || base.canOpen,
     ref: { ...base.ref, shareUrl },
   }
+  // Topology follows the base: a snapshot-backed remote thread stays remote
+  // with the later stamp; a local base stays local (no fields added).
+  if (base && base.remote === true) {
+    merged.host = base.host || live.host || remoteHost()
+    merged.remote = true
+    const seen = maxSeenIso(base.lastSeenAt, live.lastSeenAt)
+    if (seen) merged.lastSeenAt = seen
+    else delete merged.lastSeenAt
+  }
+  return merged
 }
 
 async function scanServeSafe() {
