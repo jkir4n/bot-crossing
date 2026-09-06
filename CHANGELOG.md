@@ -1,8 +1,29 @@
-## [Unreleased] — hygiene audit
-- Audit follow-up: systemd example unit now uses `%h` (systemd home specifier) instead of a
-  personal absolute path; AGENTS.md home paths generalized to `~/`. No machine names, IPs,
-  SSH usernames, drive paths, or credentials anywhere in tracked files.
 # Changelog — Bot Crossing Colony
+
+## 2026-09-06 — Remote-reader pattern (phase 1): presence fields + panel states
+
+- `9fec9d3` — remotereader: optional `host` / `lastSeenAt` / `remote` on remote
+  adapter threads. New shared stat-gate helper `server/harnesses/remote-stat.mjs`
+  (kept OUT of `index.mjs` so upstream PR #7 stays mergeable); wired into the
+  opencode, cursor and antigravity adapters. `lastSeenAt` is the colony-host
+  clock stamped at the last successful remote stat — never a remote machine's
+  wall clock. Local Hermes threads emit none of the fields (byte-identical).
+- `23a563f` — remotereader-ui: live / asleep / unreachable panel states from
+  the new pure module `src/ui/remote-presence.js` (<10m live, 10m–2h asleep,
+  >2h or missing stamp unreachable). Unreachable remote rows grey out with a
+  small "last seen HH:MM" chip; local threads render exactly as before. Row
+  repaint signatures include presence so chips refresh on poll; sidebar
+  projection carries the new fields.
+- Research pre-work (t_5feed199) green-lit the touch points, locked the
+  colony-clock lastSeen semantics and the 10m/2h bands (drift-safe: ms-scale
+  skew vs minute-scale thresholds, future stamps clamp to live), and moved the
+  helper to a new file after flagging the PR #7 hunk collision in `index.mjs`.
+- Verified: unit fixtures 8/8 on the band logic (incl. future-stamp clamp,
+  missing stamp → unreachable, local → null), production build green, colony
+  restarted on the UI commit — 15 remote threads carry the fields, 181 local
+  untouched, zero id collisions.
+- IDs stay opaque — the planned `host:harness` prefix was dropped pre-build
+  (zero collisions by construction; nothing parses ids).
 
 ## 2026-09-05 — Cursor adapter live, ghost prunes, four harnesses serving
 
@@ -10,62 +31,3 @@
   search index, one SSH pass; read-only, no deep link).
 - `3763f14` — Cursor: prune deleted-session ghosts + content-dedupe
   (16 union rows → 3 real chats).
-- `ac7c5ff` — Antigravity: prune annotation-only ghosts (orphan `.pbtxt`
-  left behind on delete).
-- Colony live on `:5274` (systemd user unit + per-harness snapshot drop-ins):
-  183 threads — Hermes 168, OpenCode 5, Antigravity 7, Cursor 3.
-- Upstream: PR #2 (Run on Linux) merged; PR #7 (Hermes adapter) open.
-- `hermes:` project display aliases (`HERMES_PROJECT_ALIASES`, e.g. colony
-  tile reads the friendly project name instead of the folder basename).
-
-## 2026-09-04 (late) — OpenCode + Antigravity adapters live
-
-- OpenCode snapshot-primary (copy-then-query, db+wal verified pair,
-  torn-pull discard) with serve API as live overlay; keeper-held tunnel.
-- `4798425` — Antigravity harness adapter (snapshot-primary).
-- `7c8ee1f` — Antigravity prunes summary-index-only ghosts (no backing
-  file = deleted).
-
-## 2026-09-04 — Project setup + research (docs only, no code)
-
-- Created project folder (README + AGENTS.md + CHANGELOG),
-  git init, no remote (fork decision pending).
-- Static review of upstream `jarrenrocks/bot-crossing` (57★, 4 commits): adapter
-  contract, `claude://` deep-link mechanism, day/night engine, UI restraint rules.
-- Verified live: OpenCode SQLite session schema; Desktop not running (port
-  unmapped); `codex.exe` socket-less (file-based only); Linux host resources OK
-  for prod build; LAN-first networking; WinPC SSH working.
-- Decisions locked: fork-first + PR separable slices; LAN-first, no Tailscale
-  dependency; host-prefixed ids; stale-not-error for offline PC; solar tile as
-  Phase 2 signature (ambient-only, isolated poller).
-
-## 2026-09-04 — Forked on GitHub
-
-- Forked `jarrenrocks/bot-crossing` → `jkir4n/bot-crossing` (upstream main f3ed478,
-  5 commits incl. same-name-folder disambiguation).
-- Merged upstream code under docs (merge 0fe0e87): upstream README.md kept
-  byte-canonical with colony notes appended as fork section, so `git fetch
-  upstream` stays clean. Remotes: `origin` = fork (SSH), `upstream` = original.
-- GitHub SSH working from WinPC via a registered key;
-  `gh` CLI token unusable over SSH (vault locked to interactive logon) —
-  run `gh` commands in the PC's own terminal.
-
-## 2026-09-04 — Scrubbed personal info (public fork)
-
-- Removed machine names, IPs, usernames, drive paths from README / CHANGELOG
-  (AGENTS.md environment section also done; rest pending approval).
-  Real connection values live in operator memory, not the repo.
-
-## 2026-09-04 — Linux port runs (branch `linux-port`, commit 02b5ccf)
-
-- Ported upstream `launch()` to Linux (`xdg-open`, null-safe elsewhere) with
-  spawn-error guard; `os` field allows linux; `BOT_CROSSING_HOST` env for
-  LAN serving (default still loopback); Host/Origin check accepts the
-  machine's own LAN addresses (rebinding/CSRF model intact).
-- Lockfile fix found on the way: upstream package-lock still said
-  `cosmo-builder` (pre-rename); synced + os field.
-- Production build + serve VERIFIED on Linux host: `/` 200, `/api/threads`
-  200 (empty — no harness sessions here yet), LAN path 200.
-  Colony live at `http://<linux-host-lan>:5274` (empty world until the
-  Hermes adapter lands).
-- Next: Hermes adapter (Phase 1), then push branch + open upstream PR.

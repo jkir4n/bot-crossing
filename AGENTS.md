@@ -74,7 +74,12 @@
 - [ ] Codex adapter — skip building our own; both upstream PRs (#5 aschenoni, #12 DiamondGeezer)
       are open. Wait for the author to merge one, then sync it into the fork (daily 10am watcher
       notifies). Only build our own if both sit unmerged for weeks and we need it.
-- [ ] Remote-reader adapters + `host:harness` id prefix + stale/last-seen UI.
+- [x] Remote-reader phase 1 (06 Sep 2026): optional host/lastSeenAt/remote on
+      remote threads (`remote-stat.mjs` helper, PR #7-safe) + panel
+      live/asleep/unreachable states + last-seen chip (`9fec9d3`, `23a563f`).
+      IDs stay opaque — `host:harness` prefix dropped by design decision.
+      Remaining: none for phase 1; revisit live-overlay when OpenCode Desktop
+      serve port is mapped.
 - [ ] Deploy prod build on Linux host; verify from phone + PC browsers.
 - [x] Windows Firewall inbound rule for serve/shim ports — verified **not required**
       (06 Sep 2026): OpenCode serve binds to loopback only, and the colony reads it
