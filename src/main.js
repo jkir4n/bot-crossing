@@ -4,6 +4,7 @@ import { DEFAULT_PRESET, Settings, hasStoredSettings } from './core/settings.js'
 import { Engine } from './core/engine.js'
 import { CameraRig } from './core/camera.js'
 import { Colony, STATUS_LABEL, STATUS_ORDER, statusFor, transcriptProgress } from './game/colony.js'
+import { projectSeenStamp } from './ui/remote-presence.js'
 import { Hud } from './ui/hud.js'
 import { PLANETS } from './world/planet.js'
 import { loadKit } from './world/kit.js'
@@ -334,6 +335,11 @@ function syncProject() {
       worktree: thread.worktree,
       lastActivityAt: thread.lastActivityAt,
       status: statusFor(thread, now),
+      // Remote topology rides along untouched: absent on local threads (the
+      // panel treats that as "render as today"), stamped on remote ones.
+      host: thread.host,
+      lastSeenAt: thread.lastSeenAt,
+      remote: thread.remote,
     }))
     // Whoever wants something first, then most recently touched — the same order of
     // importance the badges use above their heads.
@@ -545,12 +551,19 @@ function applyThreads(list) {
   hud.setStats(stats)
 
   legendProjects = colony.plotOrder
-    .map((plot) => ({
-      name: plot.name,
-      accent: plot.accent,
-      count: list.filter((t) => !t.archived && !archivedSet.has(t.id) && t.project === plot.name).length,
-      urgent: colony.urgentPlots?.has(plot.id) ?? false,
-    }))
+    .map((plot) => {
+      const mine = list.filter((t) => !t.archived && !archivedSet.has(t.id) && t.project === plot.name)
+      return {
+        name: plot.name,
+        accent: plot.accent,
+        count: mine.length,
+        urgent: colony.urgentPlots?.has(plot.id) ?? false,
+        // Latest remote stamp in the repo, so the legend's repaint signature
+        // notices a lastSeenAt-only change. '' on all-local repos: the legend
+        // then repaints exactly as often as before.
+        seen: projectSeenStamp(mine),
+      }
+    })
     .sort((a, b) => b.count - a.count)
 
   // Keep the card honest if the thread it is showing changed underneath it.

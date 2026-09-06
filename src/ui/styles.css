@@ -1073,6 +1073,26 @@ body {
   color: #7c7b86;
 }
 
+/* Remote presence: a dimmed row for an asleep host, a grey row plus a small
+   "last seen" chip for one that has gone quiet. Nothing else changes. */
+.side .thread.asleep {
+  opacity: 0.55;
+}
+
+.side .thread.unreachable {
+  opacity: 0.6;
+  color: var(--dim);
+}
+
+.side .thread .seen {
+  grid-column: 2 / -1;
+  font-size: 10.5px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── toasts + readouts ───────────────────────────────────────────────────────────── */
 
 .toasts {

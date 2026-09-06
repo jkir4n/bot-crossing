@@ -2,6 +2,7 @@ import { PRESETS, PLANETS_ORDER } from './hud-data.js'
 import { PLANETS } from '../world/planet.js'
 import { TIMES } from '../world/sky.js'
 import { STATUS_LABEL } from '../game/colony.js'
+import { presenceChip, presenceClass, presenceNote, presenceSig, remotePresence } from './remote-presence.js'
 import { FACE, FRAME_COLS, FRAME_ROWS } from '../agents/faces.js'
 
 /**
@@ -376,7 +377,7 @@ export class Hud {
    * can carry a count and an alarm without running out of room at eleven repos.
    */
   setLegend(projects, activeName = null) {
-    const signature = projects.map((p) => `${p.name}:${p.count}:${p.accent}:${p.urgent ? 1 : 0}`).join('|') + `~${activeName}`
+    const signature = projects.map((p) => `${p.name}:${p.count}:${p.accent}:${p.urgent ? 1 : 0}:${p.seen || ''}`).join('|') + `~${activeName}`
     if (this._last.legend === signature) return
     this._last.legend = signature
 
@@ -420,7 +421,7 @@ export class Hud {
     // you leave the panel open.
     const signature =
       `${project.name}~${project.path}~${project.accent}~${project.selectedId}~${Math.floor(Date.now() / 60000)}~` +
-      project.threads.map((t) => `${t.id}:${t.status}:${t.title}:${t.lastActivityAt}`).join('|')
+      project.threads.map((t) => `${t.id}:${t.status}:${t.title}:${t.lastActivityAt}:${presenceSig(t)}`).join('|')
     panel.classList.add('drilled')
     if (this._last.project === signature) return
     this._last.project = signature
@@ -448,16 +449,21 @@ export class Hud {
     const scroll = list.scrollTop
     list.innerHTML = ''
     for (const t of project.threads) {
+      // Remote presence is a panel-only overlay: local threads (no remote
+      // fields) answer null here and render exactly as they always have.
+      const presence = remotePresence(t)
+      const note = presenceNote(t, presence)
       const b = document.createElement('button')
       b.type = 'button'
-      b.className = `thread ${statusClass(t.status)}`
+      b.className = `thread ${statusClass(t.status)}${presenceClass(presence)}`
       b.setAttribute('aria-pressed', String(t.id === project.selectedId))
-      b.title = STATUS_LABEL[t.status] || t.status
+      b.title = (STATUS_LABEL[t.status] || t.status) + (note ? ` · ${note}` : '')
       b.innerHTML =
         '<i class="pip"></i>' +
         `<span class="t">${escapeHtml(t.title || 'Untitled thread')}</span>` +
         `<span class="when">${ago(t.lastActivityAt)}</span>` +
-        (t.worktree ? `<span class="wt">⑂ ${escapeHtml(t.worktree)}</span>` : '')
+        (t.worktree ? `<span class="wt">⑂ ${escapeHtml(t.worktree)}</span>` : '') +
+        presenceChip(t, presence)
       b.addEventListener('click', () => this.actions.focusThread?.(t.id))
       list.appendChild(b)
       // A long repo can hide the astronaut you just clicked in the world. Scrolled by hand
