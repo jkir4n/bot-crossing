@@ -27,6 +27,8 @@ const STEPS = [
   ['tools/build-kit.mjs', 'assets-src/KayKit_Space_Base_Bits_1.0_FREE/Assets/gltf', 'public/assets/spacebase.glb'],
   ['tools/build-kit.mjs', 'assets-src/KayKit_Forest_Nature_Pack_1.0_FREE/Assets/gltf', 'public/assets/forest.glb', FOREST.join(',')],
   ['tools/build-crew.mjs'],
+  // The power zone builds from named kit nodes — fail here, not mid-frame.
+  ['tools/verify-power-nodes.mjs'],
 ]
 
 for (const [script, ...args] of STEPS) {

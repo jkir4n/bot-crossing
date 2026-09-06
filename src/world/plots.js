@@ -59,6 +59,14 @@ const SLOTS_PER_CELL = 7
 const MAX_CELLS = 9
 /** The lattice cell the ship owns. Nothing else may be placed there. */
 const SHIP_CELL = { q: -2, r: 1 }
+/**
+ * The lattice cell the power zone owns (fork-only). Reserved exactly like the
+ * ship's: the spiral never deals it, so the zone's ground never moves under it.
+ * Ring 3 — just past the first plots of a young colony, inside a grown one.
+ */
+export const POWER_CELL = { q: 3, r: -1 }
+/** `decks.has` key for the power cell, for groundAt. */
+export const POWER_CELL_KEY = `${POWER_CELL.q},${POWER_CELL.r}`
 
 const HEX_DIRS = [
   [1, 0],
@@ -160,6 +168,7 @@ function hexDistance(a, b) {
  */
 export function allocateCells(projects, previous = new Map()) {
   const reserved = key(SHIP_CELL.q, SHIP_CELL.r)
+  const powerKept = key(POWER_CELL.q, POWER_CELL.r)
   const wanted = projects.map((p) => ({ id: p.id, want: cellsNeeded(p.size) }))
   const total = wanted.reduce((n, w) => n + w.want, 0)
 
@@ -179,7 +188,7 @@ export function allocateCells(projects, previous = new Map()) {
   for (let ring = 0; (pool.length < total + 30 || ring <= farthest) && ring < 12; ring++) {
     for (const cell of hexRing(ring)) {
       const k = key(cell.q, cell.r)
-      if (k === reserved) continue
+      if (k === reserved || k === powerKept) continue
       pool.push(cell)
       free.add(k)
     }

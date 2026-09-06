@@ -11,9 +11,11 @@ import {
   DECK_TOP,
   PLOT_PALETTE,
   PLOT_CELL,
+  POWER_CELL_KEY,
 } from '../world/plots.js'
 import { createBuilding, buildingUniforms, Scaffolds } from '../world/buildings.js'
-import { isSolarFresh, solarGlintLevel, solarDimFactor, solarTimeTarget, SOLAR_PEEK_MS } from './solar.js'
+import { PowerZone, POWER_ACCENT } from '../world/power-zone.js'
+import { isSolarFresh, solarDimFactor, solarTimeTarget, SOLAR_PEEK_MS } from './solar.js'
 import { Ship } from '../world/ship.js'
 import { Astronauts } from '../agents/astronauts.js'
 import { Indicators, BADGE } from '../agents/indicators.js'
@@ -129,7 +131,9 @@ export class Colony {
     this.plotCells = new Map()
     this.buildings = new Map()
     this.threads = new Map()
-    this.usedAccents = new Set()
+    // The power zone's amber is taken from the start, so no repo ever wears it.
+    this.usedAccents = new Set([POWER_ACCENT])
+    // The power zone itself, built once the kit is in (see onAssetsReady).
 
     this.worldGroup = new THREE.Group()
     this.worldGroup.name = 'world'
@@ -156,11 +160,12 @@ export class Colony {
     this._dustTint = new THREE.Color(this.planet.ground.high)
     this._c = new THREE.Color()
     this.stats = { agents: 0, projects: 0, working: 0, waiting: 0, blocked: 0, done: 0 }
-    // Solar (fork-only): latest /api/solar payload plus the damped display values the
-    // shader actually reads. Both start at neutral, so manual/internal modes — and any
-    // backend that never serves solar — render exactly as before.
+    // Solar (fork-only): latest /api/solar payload plus the damped dim value the
+    // shader actually reads. Starts neutral, so manual/internal modes — and any
+    // backend that never serves solar — render exactly as before. Panel glint
+    // itself lives on the power zone's array mesh, never on town glass.
     this.solar = null
-    this._solarGlint = 0
+    this.powerZone = null
     this._solarDim = 1
     this._solarStaleLogged = false
     this._peekUntil = 0
@@ -214,6 +219,11 @@ export class Colony {
         clear.push({ x: plot.center.x + local.x, z: plot.center.z + local.z, r: 8.6 })
       }
     }
+    // The power zone's deck is not a repo plot, but boulders still avoid it.
+    if (this.powerZone) {
+      const c = this.powerZone.scatterClear()
+      clear.push(c)
+    }
     const ship = shipPosition()
     clear.push({ x: ship.x, z: ship.z, r: 7.5 })
     this.scatterGroup = createScatter(this.planet, this.settings.get('scatterDensity'), clear)
@@ -238,6 +248,19 @@ export class Colony {
    */
   onAssetsReady() {
     this._buildTerrain()
+    // The kit is in, so the power zone can assemble its structures. A missing
+    // node fails here, once, instead of mid-frame — and the town stands alone.
+    try {
+      this.powerZone = new PowerZone(this.settings)
+      this.scene.add(this.powerZone.plot.group, this.powerZone.label)
+      this.powerZone.setSolar(this.solar)
+      // Fresh ground under it, and the crew routed around it.
+      this._buildScatter()
+      this._rebuildNavigation()
+    } catch (err) {
+      this.powerZone = null
+      console.warn('[solar] power zone unavailable —', err?.message || err)
+    }
   }
 
   setPlanet(id) {
@@ -271,6 +294,7 @@ export class Colony {
    */
   setSolar(solar) {
     this.solar = solar && typeof solar === 'object' ? solar : null
+    this.powerZone?.setSolar(this.solar)
     const fresh = isSolarFresh(this.solar)
     if (!fresh && !this._solarStaleLogged) {
       this._solarStaleLogged = true
@@ -281,20 +305,17 @@ export class Colony {
   }
 
   /**
-   * Solar (fork-only): HA time-source follow, panel glint, three-state night lighting.
-   * Every target derives from the last payload via src/game/solar.js — no house logic
-   * here. Display values damp toward their targets so stale data fades to neutral
-   * instead of snapping; manual/internal frames sit at 0/1 exactly.
+   * Solar (fork-only): HA time-source follow and three-state night lighting.
+   * The dim target derives from the last payload via src/game/solar.js — no
+   * house logic here. It damps toward its target so stale data fades back to
+   * neutral instead of snapping; manual/internal frames sit at 1 exactly.
+   * Panel glint is not global: the zone damps and writes its own uGlint.
    */
   _updateSolar(dt) {
-    const glintTarget = this.settings.get('solarGlint') === false ? 0 : solarGlintLevel(this.solar)
     const dimTarget = solarDimFactor(this.solar)
     const k = 1 - Math.exp(-dt * 1.5)
-    this._solarGlint += (glintTarget - this._solarGlint) * k
     this._solarDim += (dimTarget - this._solarDim) * k
-    if (Math.abs(this._solarGlint) < 0.001) this._solarGlint = 0
     if (Math.abs(this._solarDim - 1) < 0.001) this._solarDim = 1
-    buildingUniforms.uGlint.value = this._solarGlint
     buildingUniforms.uDim.value = this._solarDim
 
     if (this.settings.get('timeSource') !== 'ha') return
@@ -473,6 +494,8 @@ export class Colony {
     for (const plot of this.plotOrder) {
       for (const cell of plot.cells) this.deckedCells.add(`${cell.q},${cell.r}`)
     }
+    // The power zone's deck is walked the same way, though nobody is rostered there.
+    this.deckedCells.add(POWER_CELL_KEY)
     this._syncLabels()
   }
 
@@ -582,6 +605,12 @@ export class Colony {
         obstacles.push({ x: plot.center.x + spot.x, z: plot.center.z + spot.z, r: spot.r + AGENT_RADIUS })
       }
     }
+    // The power zone's array, bank, mast, fence and gauge, in world space.
+    if (this.powerZone) {
+      for (const spot of this.powerZone.navSpots()) {
+        obstacles.push({ x: spot.x, z: spot.z, r: spot.r + AGENT_RADIUS })
+      }
+    }
     // Ground scatter counts as well. A boulder an astronaut can walk through is the same
     // bug as a habitat it can walk through, and a sleeping one parked inside a solar panel
     // is what that bug looks like from the outside. Instances are read straight off the
@@ -624,6 +653,18 @@ export class Colony {
         }
       }
     }
+    // The power zone is not a repo plot, but it is still a deck you can point at —
+    // close enough to its middle wins over bare ground, never over a repo.
+    if (this.powerZone) {
+      const p = this.powerZone.plot
+      const dx = x - p.center.x
+      const dz = z - p.center.z
+      const d = dx * dx + dz * dz
+      if (d < bestD && d <= PLOT_CELL * PLOT_CELL) {
+        bestD = d
+        best = p
+      }
+    }
     return bestD <= PLOT_CELL * PLOT_CELL ? best : null
   }
 
@@ -643,9 +684,14 @@ export class Colony {
     const p = this.camera.projectionMatrix.elements
     let best = null
     let bestDist = Infinity
+    // The zone's plate hit-tests like every quiet plot's — including while it
+    // is faded out, since pointing at it is what fades it in.
+    const plates = []
     for (const plot of this.plotOrder) {
-      const label = plot.label
-      if (!label) continue
+      if (plot.label) plates.push([plot, plot.label])
+    }
+    if (this.powerZone) plates.push([this.powerZone.plot, this.powerZone.label])
+    for (const [plot, label] of plates) {
       const dist = -view.copy(label.position).applyMatrix4(this.camera.matrixWorldInverse).z
       if (dist <= 0.01 || dist >= bestDist) continue
       const geo = label.geometry.parameters
@@ -758,6 +804,11 @@ export class Colony {
     // One write turns every rotor in the colony.
     buildingUniforms.uTime.value = elapsed
     this._updateSolar(dt)
+    this.powerZone?.update(dt, elapsed, night, {
+      hovered: this.hoveredPlot === this.powerZone?.plot,
+      uiVisible: this.uiVisible,
+      showLabels: this.settings.get('showLabels'),
+    })
     this.ship.update(dt, elapsed, night)
 
     this._growBuildings(dt)
@@ -915,6 +966,11 @@ export class Colony {
     this.indicators.dispose()
     this.particles.dispose()
     this.scaffolds.dispose()
+    if (this.powerZone) {
+      this.scene.remove(this.powerZone.plot.group, this.powerZone.label)
+      this.powerZone.dispose()
+      this.powerZone = null
+    }
     disposeTree(this.worldGroup)
     disposeTree(this.plotGroup)
     disposeTree(this.labelGroup)

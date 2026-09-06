@@ -615,12 +615,9 @@ async function pollSolar() {
   if (solarPolling) return
   solarPolling = true
   try {
-    const solar = await fetchSolar()
-    colony.setSolar(solar)
-    hud.setSolar(solar)
+    colony.setSolar(await fetchSolar())
   } catch {
     colony.setSolar(null)
-    hud.setSolar(null)
   } finally {
     solarPolling = false
   }

@@ -49,7 +49,7 @@ export const buildingUniforms = {
  * heads and a mast is three of them, while the widest footprint still leaves a walkable
  * gap at the plot's 4.4-unit slot spacing.
  */
-const BUILDING_SCALE = 1.45
+export const BUILDING_SCALE = 1.45
 
 /** The top face of a base module — where roof modules and masts stack. */
 const DECK = 1.0
@@ -95,8 +95,11 @@ const SOLAR_MASK = cellMask([CELL.SOLAR_A, CELL.SOLAR_B])
 /**
  * A tiny placement helper. Parts are baked to the building's own frame as they are added,
  * each carrying a per-vertex emissive flag, so the whole lot merges into one buffer.
+ *
+ * Exported for the power zone, which assembles its array/battery/station/fence out of
+ * the same kit parts through the same shader — one look, one material path.
  */
-class Composer {
+export class Composer {
   constructor() {
     this.parts = []
   }
@@ -267,8 +270,12 @@ const KIND_IDS = Object.keys(KINDS)
  * above that line painted in the accent — the "under construction" glow.
  * The accent also replaces the gold trim swatch outright, and per-cell roughness and
  * metalness turn one flat texture into a surface with metal, paint and glass in it.
+ *
+ * Exported alongside Composer so the power zone's structures shade exactly like
+ * every other building. Zone meshes pass their own uniform objects (not the
+ * shared buildingUniforms) so the zone's live values never leak onto the town.
  */
-function decorate(material, uniforms) {
+export function decorate(material, uniforms) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms)
 
@@ -376,9 +383,10 @@ function decorate(material, uniforms) {
          totalEmissiveRadiance += diffuseColor.rgb * vEmissive * ( 0.25 + uNight * uDim * 2.4 );
          // Window strips and trim come on after dark, in the repo's own colour.
          totalEmissiveRadiance += uAccent * uCellAccent[ cell ] * uNight * uDim * 1.15;
-         // Live output from the operator's array: photovoltaic glass carries a daytime
-         // glint proportional to production, dark again at night. uGlint rests at 0, so
-         // manual/internal frames render exactly as before.
+         // Zone-scoped production glint: photovoltaic glass carries a daytime
+         // glint proportional to output on the power zone's own array mesh,
+         // whose uGlint the zone damps privately. Town buildings share a uGlint
+         // that rests at 0, so their glass stays dark.
          totalEmissiveRadiance += diffuseColor.rgb * uCellSolar[ cell ] * uGlint * 1.7;
          // The construction line: a bright band riding just above the ground it rises from.
          float band = 1.0 - smoothstep( 0.0, 0.22, vLocalY - ground );
@@ -440,6 +448,29 @@ function depthMaterial(uniforms) {
       )
   }
   return mat
+}
+
+/**
+ * Fresh per-structure uniform block for anything that shades like a building but
+ * answers to its own live values — the power zone's array glint, in particular.
+ * `night`/`time`/`dim` are shared refs (the whole colony still dims as one);
+ * glint is always a private object starting at 0 so town glass stays dark.
+ */
+export function structureUniforms({ accent, height, minY, night, time, dim }) {
+  return {
+    uProgress: { value: 1 },
+    uMaxY: { value: height },
+    uMinY: { value: minY },
+    uAccent: { value: new THREE.Color(accent) },
+    uNight: night,
+    uTime: time,
+    uGlint: { value: 0 },
+    uDim: dim,
+    uCellAccent: { value: ACCENT_MASK },
+    uCellSolar: { value: SOLAR_MASK },
+    uCellRoughness: { value: ROUGHNESS },
+    uCellMetalness: { value: METALNESS },
+  }
 }
 
 /**

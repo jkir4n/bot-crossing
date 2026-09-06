@@ -37,22 +37,75 @@ export function solarGlintLevel(solar) {
 }
 
 /**
- * Night-lighting multiplier. Dims a notch on genuine battery discharge, never
- * on grid or solar surplus. A null source still dims on discharge: current
- * flowing out of the battery is a measurement, not a guess about grid state.
+ * Night-lighting multiplier. Dims a notch only when HA itself says the house
+ * is on battery (source === 'battery') and current is flowing out of it. Grid
+ * and solar never dim; a null source never dims either — without HA's own
+ * source word, discharge is just a measurement, never a conserving state.
  */
 export function solarDimFactor(solar) {
   if (!isSolarFresh(solar)) return 1
+  if (solar.source !== 'battery') return 1
   const discharging = Number.isFinite(solar.batteryPowerW) && solar.batteryPowerW < 0
-  if (!discharging) return 1
-  if (solar.source === 'grid' || solar.source === 'solar') return 1
-  return SOLAR_BATTERY_DIM
+  return discharging ? SOLAR_BATTERY_DIM : 1
 }
 
 /** Where the HA time-source holds the clock, or null when it should not push. */
 export function solarTimeTarget(solar) {
   if (!isSolarFresh(solar) || solar.isDay === null || solar.isDay === undefined) return null
   return solar.isDay ? SOLAR_DAY_TARGET : SOLAR_NIGHT_TARGET
+}
+
+// ── power zone (1:1 HA displays, no inference) ───────────────────────────────
+
+/**
+ * Battery fill 0..1 straight from batterySoC, or null when HA gives nothing
+ * usable. The zone's gauge lights that many quartiles; null lights none.
+ */
+export function batteryFillLevel(solar) {
+  if (!isSolarFresh(solar)) return null
+  const s = solar.batterySoC
+  if (!Number.isFinite(s)) return null
+  return Math.min(1, Math.max(0, s / 100))
+}
+
+/**
+ * True only when HA reports both a state of charge and its own grid-connect
+ * threshold and the charge sits at or under it. Drives the zone's dimmed
+ * battery + guard glow — a label of HA's numbers, never a computed state.
+ */
+export function batteryBelowCutoff(solar) {
+  if (!isSolarFresh(solar)) return false
+  const s = solar.batterySoC
+  const c = solar.cutoff
+  if (!Number.isFinite(s) || !Number.isFinite(c)) return false
+  return s <= c
+}
+
+/**
+ * The station fan turns if and only if HA names grid as the source. Stale,
+ * null, solar and battery all read as still — the house is on its own power.
+ */
+export function turbineSpinning(solar) {
+  return isSolarFresh(solar) && solar.source === 'grid'
+}
+
+/** Which way energy is flowing through the battery, from its meter sign only. */
+export function batteryFlow(solar) {
+  if (!isSolarFresh(solar)) return 'unknown'
+  const w = solar.batteryPowerW
+  if (!Number.isFinite(w)) return 'unknown'
+  if (w > 0) return 'charge'
+  if (w < 0) return 'discharge'
+  return 'idle'
+}
+
+/**
+ * Whether the optional verbatim recorder payload is present. The zone renders
+ * nothing from it either way — this exists so callers can tell "absent" from
+ * "empty" without touching its rows, which the colony never aggregates.
+ */
+export function hasSolarHistory(solar) {
+  return Boolean(solar) && Array.isArray(solar.history) && solar.history.length > 0
 }
 
 const fmtW = (w) => (Number.isFinite(w) ? `${Math.round(w)} W` : '—')

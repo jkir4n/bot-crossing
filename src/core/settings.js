@@ -124,10 +124,9 @@ const DEFAULTS = {
   timeOfDay: 0.32, // 0..1 — 0 is midnight, 0.5 is noon
   autoTime: false,
   dayLength: 240, // seconds for a full cycle when autoTime is on
-  // Solar (fork-only): which clock drives the sky, plus the two solar toggles.
+  // Solar (fork-only): which clock drives the sky, plus the panel-glint toggle.
   // 'manual' and 'internal' are exactly the old slider/autoTime pair, untouched.
   timeSource: 'manual', // 'manual' | 'internal' | 'ha'
-  solarReadout: true,
   solarGlint: true,
 
   // Look
