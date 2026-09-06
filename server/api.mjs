@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { getSolarState } from './ha-solar.mjs'
 import {
   defaultHarness,
   harnessAppStartedAt,
@@ -254,6 +255,10 @@ export async function apiMiddleware(req, res, next) {
 
     if (url.pathname === '/api/harnesses' && req.method === 'GET') {
       return send(res, 200, { harnesses: await harnessStatus() })
+    }
+
+    if (url.pathname === '/api/solar' && req.method === 'GET') {
+      return send(res, 200, { solar: getSolarState() })
     }
 
     if (url.pathname === '/api/state' && req.method === 'GET') {

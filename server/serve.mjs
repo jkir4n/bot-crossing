@@ -60,4 +60,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Bot Crossing → http://${HOST}:${PORT}`)
+  import('./ha-solar.mjs').then(
+    ({ startPolling }) => startPolling(),
+    (err) => console.warn('bot-crossing: ha-solar start failed —', err?.message || err),
+  )
 })
