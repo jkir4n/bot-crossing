@@ -12,7 +12,7 @@ import { mulberry } from './planet.js'
 import {
   solarGlintLevel,
   solarDimFactor,
-  batteryFillLevel,
+  batteryLitCount,
   batteryBelowCutoff,
   rigGlowOn,
   turbineSpinning,
@@ -30,18 +30,18 @@ import {
  *
  * Tile plan (plot-local scene units, default camera at azimuth 45°):
  *   west  solar array, pure 3x2 `solarpanel` rows — nothing else in its box
- *   back  battery bank, two `basemodule_C` bodies side by side, fronts south
- *   front-west  gauge: four `cargo_A` crates in a 2x2 block, fill order
- *               front row then back row, one quartile per 25 % SoC
- *   front-east  rig, clear of the gauge's sightline from the default camera
+ *   back  battery bank, four `cargo_A` blocks in one 1x4 row, west-to-east
+ *         fill order, fronts to the walkway
+ *   front-east  rig, clear of the bank's sightline from the default camera
  *   kerb  containers / small depot / lights as scenery, all inside the deck
  *
  *   solar array  rows of `solarpanel`; live output glints on the panel cells
  *                of THIS mesh only (its own uGlint — town glass stays dark)
- *   battery bank two `basemodule` bodies; the 2x2 `cargo_A` gauge beside
- *                their west front lights one quartile per 25 % SoC, brighter
- *                while charging; at or under HA's cutoff the bank dims and
- *                the empty blocks carry a faint guard glow
+ *   battery bank four double-scale `cargo_A` blocks in a straight row — the
+ *                bank IS the gauge, so four batteries read as one row. Block
+ *                i (west to east) lights for its quartile, one per 25 % SoC,
+ *                brighter while charging; at or under HA's cutoff the row
+ *                dims and the empty blocks carry a faint guard glow
  *   rig          a `drill_structure` + `drill_module` base with a
  *                `windturbine_low` mast on its roof and that mast's fan on
  *                top — one composite silhouette. Grid mode reads twice:
@@ -51,9 +51,9 @@ import {
  *   fence        containers / cargodepot / lights ringing the kerb as scenery
  *
  * Clearances were measured from the glb's own bounding boxes in scene units
- * (0.4+ between structures, 0.15+ to scenery, every corner inside the hex)
+ * (1.9+ between structures, 0.6+ to scenery, every corner inside the hex)
  * and the sightlines checked from the default camera, so the rig never
- * covers the gauge or the array. See the tweak-2 handoff for the numbers.
+ * covers the bank or the array. See the bank-row handoff for the numbers.
  *
  * Pure display throughout: every target derives from the SolarState via
  * src/game/solar.js. The recorder payload (`history`) is accepted and ignored —
@@ -74,19 +74,18 @@ const TOWER_Y = 2.0
 const LOW_HUB = 0.89
 /** Rooftop fan cruise: the town masts' slow turn, fixed so every load agrees. */
 const FAN_RATE = 0.22
-/** Gauge blocks: one per quartile, in a 2x2 block, front row first. */
-const GAUGE_BLOCKS = 4
-/** Gauge crate pitch in scene units (crates are unscaled by BUILDING_SCALE). */
-const GAUGE_PITCH = 0.8
-/** Gauge block centre: tucked under the bank's west front, facing the camera. */
-const GAUGE_AT = { x: -2.2, z: 0.03 }
-/** Bank bodies: two C modules side by side, measured ±1 pack units each. */
-const BANK_BODIES = [-1.02, 1.02]
+/** Battery bank: four blocks in one straight row, west-to-east fill order. */
+const BANK_BLOCKS = 4
+/** Block scale: double-size crates read as batteries, still inside the tile. */
+const BANK_SCALE = 2.0
+/** Row pitch in scene units (blocks are 1.45 wide — a tight single row). */
+const BANK_PITCH = 1.6
+/** Row centre on the back strip: array/rig clear in z, fence clear all round. */
+const BANK_AT = { x: -0.55, z: -2.9 }
 
 /** Every kit node this module places. Checked at build time (see tools/). */
 export const POWER_NODES = [
   'solarpanel',
-  'basemodule_C',
   'drill_structure',
   'drill_module',
   'windturbine_low',
@@ -121,7 +120,7 @@ export class PowerZone {
     // carries a private clock that only advances while HA names grid.
     this._rigClock = { value: 0 }
     this._rigTime = 0
-    this._gauge = { lit: -1, intensity: -1, guard: null }
+    this._bank = { lit: -1, intensity: -1, guard: null }
     this._dimmed = null
 
     // The ground: a one-cell Plot that belongs to no repo, so it never enters
@@ -140,7 +139,7 @@ export class PowerZone {
     this.structures = []
 
     this.array = this._raise(this._composeArray(), -2.9, 2.0)
-    this.battery = this._raise(this._composeBattery(), -0.1, -2.9)
+    this.bank = this._buildBank()
     this.rig = this._raise(this._composeRig({ clock: this._rigClock }), 3.0, 1.1)
     this.fence = this._raise(this._composeFence(), 0, 0)
 
@@ -148,8 +147,6 @@ export class PowerZone {
     // emissive, damped on/off like the array glint. Dark otherwise.
     this.rig.mesh.material.emissive = new THREE.Color(POWER_ACCENT)
     this.rig.mesh.material.emissiveIntensity = 0
-
-    this._buildGauge()
 
     this.label = createLabel('Power', POWER_ACCENT)
     this.label.position.set(this.plot.labelAnchor.x, 3.2, this.plot.labelAnchor.z)
@@ -223,15 +220,6 @@ export class PowerZone {
     return this._finish(c)
   }
 
-  _composeBattery() {
-    // Two C bodies side by side, fronts (+z, the 1.21 overhang) facing the
-    // gauge and the camera. One body read as a shed; two read as the bank
-    // that powers the colony.
-    const c = new Composer()
-    for (const bx of BANK_BODIES) c.add('basemodule_C', { x: bx })
-    return this._finish(c)
-  }
-
   _composeRig({ clock } = {}) {
     // One composite silhouette, bottom to top: structure solo, its module at
     // the modelled offset, the low mast solo standing on the roof plane, and
@@ -277,20 +265,22 @@ export class PowerZone {
     return this._finish(c)
   }
 
-  _buildGauge() {
-    // Four crates in a 2x2 block by the bank's west front: fill quartiles in
-    // front-row-then-back order, so the level reads from the default camera.
-    // Quartile logic unchanged — only the arrangement moved with the bank.
+  _buildBank() {
+    // Four double-scale blocks in one straight row along the back strip:
+    // the bank IS the gauge, so the charge reads left to right (west to
+    // east from the default camera), one quartile per block. Quartile,
+    // flow-brightness and guard logic are unchanged — only the bodies are
+    // gone and the crates grew into batteries.
     const probe = part('cargo_A')
     probe.computeBoundingBox()
     const box = probe.boundingBox.clone()
     probe.dispose()
-    const gauge = new THREE.Group()
-    this.gaugeBlocks = []
-    for (let i = 0; i < GAUGE_BLOCKS; i++) {
+    const bank = new THREE.Group()
+    this.bankBlocks = []
+    for (let i = 0; i < BANK_BLOCKS; i++) {
       const geo = part('cargo_A')
       geo.translate(-box.min.x - (box.max.x - box.min.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2)
-      geo.scale(1.2, 1.2, 1.2)
+      geo.scale(BANK_SCALE, BANK_SCALE, BANK_SCALE)
       const material = new THREE.MeshStandardMaterial({
         map: atlasTexture(),
         roughness: 0.6,
@@ -301,19 +291,20 @@ export class PowerZone {
       const mesh = new THREE.Mesh(geo, material)
       mesh.castShadow = true
       mesh.position.set(
-        GAUGE_AT.x + ((i % 2) - 0.5) * GAUGE_PITCH,
+        BANK_AT.x + (i - (BANK_BLOCKS - 1) / 2) * BANK_PITCH,
         DECK_TOP,
-        GAUGE_AT.z + (0.5 - Math.floor(i / 2)) * GAUGE_PITCH
+        BANK_AT.z
       )
-      gauge.add(mesh)
-      this.gaugeBlocks.push(mesh)
+      bank.add(mesh)
+      this.bankBlocks.push(mesh)
     }
-    this.plot.group.add(gauge)
-    for (const m of this.gaugeBlocks) {
+    this.plot.group.add(bank)
+    for (const m of this.bankBlocks) {
       const b = new THREE.Box3().setFromObject(m)
       const s = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) * 0.5
       this.structures.push({ x: m.position.x, z: m.position.z, r: Math.max(0.45, s * 0.8) })
     }
+    return bank
   }
 
   // ── live state ────────────────────────────────────────────────────────────
@@ -335,23 +326,22 @@ export class PowerZone {
     if (Math.abs(this._glint) < 0.001) this._glint = 0
     this.array.uniforms.uGlint.value = this._glint
 
-    // Battery: fill quartiles, flow brightness, cutoff guard.
-    const fill = batteryFillLevel(this.solar)
+    // Battery row: fill quartiles west to east, flow brightness, cutoff guard.
     const flow = batteryFlow(this.solar)
     const guard = batteryBelowCutoff(this.solar)
-    const lit = fill === null ? 0 : Math.round(fill * GAUGE_BLOCKS)
+    const lit = batteryLitCount(this.solar, BANK_BLOCKS)
     const intensity = flow === 'charge' ? 2.0 : flow === 'idle' ? 1.6 : 1.2
-    const g = this._gauge
+    const g = this._bank
     if (g.lit !== lit || g.intensity !== intensity || g.guard !== guard) {
-      this._gauge = { lit, intensity, guard }
-      this.gaugeBlocks.forEach((mesh, i) => {
+      this._bank = { lit, intensity, guard }
+      this.bankBlocks.forEach((mesh, i) => {
         if (i < lit) mesh.material.emissiveIntensity = intensity
         else mesh.material.emissiveIntensity = guard ? 0.35 : 0
       })
     }
     if (this._dimmed !== guard) {
       this._dimmed = guard
-      this.battery.mesh.material.color.setScalar(guard ? 0.55 : 1)
+      for (const mesh of this.bankBlocks) mesh.material.color.setScalar(guard ? 0.55 : 1)
     }
 
     // Station rig: grid glow plus rooftop fan, or darkness and still air.
@@ -389,7 +379,7 @@ export class PowerZone {
     this.plot.dispose()
     this.rig.mesh.geometry.dispose()
     this.rig.mesh.material.dispose()
-    for (const m of this.gaugeBlocks) {
+    for (const m of this.bankBlocks) {
       m.geometry.dispose()
       m.material.dispose()
     }

@@ -69,6 +69,18 @@ export function batteryFillLevel(solar) {
 }
 
 /**
+ * How many of the bank's blocks light for the current charge, in fill order.
+ * Null or stale SoC lights none — the row sits dark, never guessed. The
+ * count is what the zone writes onto its blocks; the mapping lives here so
+ * the fixture harness can pin it without a renderer.
+ */
+export function batteryLitCount(solar, blocks = 4) {
+  const fill = batteryFillLevel(solar)
+  if (fill === null) return 0
+  return Math.round(fill * blocks)
+}
+
+/**
  * True only when HA reports both a state of charge and its own grid-connect
  * threshold and the charge sits at or under it. Drives the zone's dimmed
  * battery + guard glow — a label of HA's numbers, never a computed state.

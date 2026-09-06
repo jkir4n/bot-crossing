@@ -5,7 +5,7 @@
  * Feeds fake SolarStates through the whole matrix — the three source states, stale and
  * missing payloads, null fields, the glint ceiling — and asserts the visuals land
  * exactly where the design matrix says: glint level, night-dim factor, HA clock
- * target, the one-line readout, and the power zone's fill/guard/glow/spin/flow helpers.
+ * target, the one-line readout, and the power zone's fill/lit-count/guard/glow/spin/flow helpers.
  * The power statistics panel asserts through the same door: live-state mapping
  * (nulls to dashes) with spin/glow unchanged. The panel renders live rows only —
  * recorder history stays a backend passthrough the panel never reads.
@@ -25,6 +25,7 @@ import {
   solarTimeTarget,
   solarReadout,
   batteryFillLevel,
+  batteryLitCount,
   batteryBelowCutoff,
   rigGlowOn,
   turbineSpinning,
@@ -367,6 +368,22 @@ check('spin on fresh grid turns', turbineSpinning(state({ source: 'grid' })), tr
 check('spin follows glow on every source', ['solar', 'battery', 'grid', null, undefined].every((source) => turbineSpinning(state({ source })) === rigGlowOn(state({ source }))), true)
 check('flow idle at 0 W', batteryFlow(state({ batteryPowerW: 0 })), 'idle')
 check('flow unknown on NaN', batteryFlow(state({ batteryPowerW: Number.NaN })), 'unknown')
+// Bank row: SoC quartiles onto 4 blocks, west to east (0-25/25-50/50-75/75-100 -> 1/2/3/4 lit).
+check('bank default arity is 4 blocks', batteryLitCount(state({ batterySoC: 50 })), 2)
+check('bank null SoC lights none', batteryLitCount(state({ batterySoC: null }), 4), 0)
+check('bank stale lights none', batteryLitCount(state({ stale: true, batterySoC: 90 }), 4), 0)
+check('bank 0% lights none', batteryLitCount(state({ batterySoC: 0 }), 4), 0)
+check('bank 10% lights none', batteryLitCount(state({ batterySoC: 10 }), 4), 0)
+check('bank 13% lights one', batteryLitCount(state({ batterySoC: 13 }), 4), 1)
+check('bank 25% lights one', batteryLitCount(state({ batterySoC: 25 }), 4), 1)
+check('bank 38% lights two', batteryLitCount(state({ batterySoC: 38 }), 4), 2)
+check('bank 50% lights two', batteryLitCount(state({ batterySoC: 50 }), 4), 2)
+check('bank 63% lights three', batteryLitCount(state({ batterySoC: 63 }), 4), 3)
+check('bank 75% lights three', batteryLitCount(state({ batterySoC: 75 }), 4), 3)
+check('bank 88% lights four', batteryLitCount(state({ batterySoC: 88 }), 4), 4)
+check('bank 100% lights four', batteryLitCount(state({ batterySoC: 100 }), 4), 4)
+check('bank clamps above full', batteryLitCount(state({ batterySoC: 140 }), 4), 4)
+check('bank clamps below empty', batteryLitCount(state({ batterySoC: -4 }), 4), 0)
 check('empty history array reads as absent', hasSolarHistory(state({ history: [] })), false)
 check('non-array history reads as absent', hasSolarHistory(state({ history: { samples: [] } })), false)
 check('history never moves the glint', solarGlintLevel(state({ solarPowerW: 1500, history: [[1, 2]] })), 0.5)
