@@ -90,6 +90,15 @@ export function rigGlowOn(solar) {
   return isSolarFresh(solar) && solar.source === 'grid'
 }
 
+/**
+ * The rooftop fan turns if and only if HA names grid as the source — the
+ * same single HA word as the rig glow, read as motion instead of light.
+ * Stale, null, solar and battery all read as still air.
+ */
+export function turbineSpinning(solar) {
+  return isSolarFresh(solar) && solar.source === 'grid'
+}
+
 /** Which way energy is flowing through the battery, from its meter sign only. */
 export function batteryFlow(solar) {
   if (!isSolarFresh(solar)) return 'unknown'

@@ -9,8 +9,9 @@
  *
  * Exit 1 listing every missing node. The list mirrors POWER_NODES in
  * src/world/power-zone.js plus the town-shared nodes the zone does not own —
- * the roof-panel node behind the old town glint and the low turbine pair
- * behind the antenna recipe — keep the two in lockstep.
+ * the roof-panel node behind the old town glint (the low turbine pair used
+ * to be town-only; since tweak-2 the rooftop fan owns them too, so they ride
+ * in POWER_NODES and are listed twice) — keep the two in lockstep.
  */
 import { NodeIO } from '@gltf-transform/core'
 import { POWER_NODES } from '../src/world/power-zone.js'

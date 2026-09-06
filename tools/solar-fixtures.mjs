@@ -5,7 +5,7 @@
  * Feeds fake SolarStates through the whole matrix — the three source states, stale and
  * missing payloads, null fields, the glint ceiling — and asserts the visuals land
  * exactly where the design matrix says: glint level, night-dim factor, HA clock
- * target, the one-line readout, and the power zone's fill/guard/glow/flow helpers.
+ * target, the one-line readout, and the power zone's fill/guard/glow/spin/flow helpers.
  *
  * Colony rule: pure display of HA facts. A null source is neutral, always — the
  * colony never infers a conserving state from discharge alone. History is a
@@ -24,6 +24,7 @@ import {
   batteryFillLevel,
   batteryBelowCutoff,
   rigGlowOn,
+  turbineSpinning,
   batteryFlow,
   hasSolarHistory,
   SOLAR_GLINT_FULL_W,
@@ -78,6 +79,7 @@ function zone(title, solar, expect) {
   check('  fill', batteryFillLevel(solar), expect.fill)
   check('  guard', batteryBelowCutoff(solar), expect.guard)
   check('  glow', rigGlowOn(solar), expect.glow)
+  check('  spin', turbineSpinning(solar), expect.spin)
   check('  flow', batteryFlow(solar), expect.flow)
   check('  hasHistory', hasSolarHistory(solar), expect.hasHistory)
 }
@@ -185,30 +187,34 @@ zone('10. zone battery day (charging, above cutoff)', state({ solarPowerW: 1500,
   fill: 0.82,
   guard: false,
   glow: false,
+  spin: false,
   flow: 'charge',
   hasHistory: false,
 })
 
-zone('11. zone grid mode (rig glows, guard reads HA numbers)', state({ isDay: false, batterySoC: 18, batteryPowerW: 0, cutoff: 20, cutIn: 50, source: 'grid' }), {
+zone('11. zone grid mode (rig glows + fan turns, guard reads HA numbers)', state({ isDay: false, batterySoC: 18, batteryPowerW: 0, cutoff: 20, cutIn: 50, source: 'grid' }), {
   fill: 0.18,
   guard: true,
   glow: true,
+  spin: true,
   flow: 'idle',
   hasHistory: false,
 })
 
-zone('12. zone battery mode (conserving, rig dark)', state({ isDay: false, batterySoC: 55, batteryPowerW: -300, cutoff: 20, source: 'battery' }), {
+zone('12. zone battery mode (conserving, rig dark + still)', state({ isDay: false, batterySoC: 55, batteryPowerW: -300, cutoff: 20, source: 'battery' }), {
   fill: 0.55,
   guard: false,
   glow: false,
+  spin: false,
   flow: 'discharge',
   hasHistory: false,
 })
 
-zone('13. zone null source (neutral: rig dark, no guard without cutoff)', state({ batterySoC: 40, batteryPowerW: -250, source: null }), {
+zone('13. zone null source (neutral: rig dark + still, no guard without cutoff)', state({ batterySoC: 40, batteryPowerW: -250, source: null }), {
   fill: 0.4,
   guard: false,
   glow: false,
+  spin: false,
   flow: 'discharge',
   hasHistory: false,
 })
@@ -217,6 +223,7 @@ zone('14. zone history present changes nothing rendered', state({ solarPowerW: 1
   fill: 0.82,
   guard: false,
   glow: false,
+  spin: false,
   flow: 'charge',
   hasHistory: true,
 })
@@ -225,6 +232,7 @@ zone('15. zone stale/nulls (everything neutral, never NaN)', state({ stale: true
   fill: null,
   guard: false,
   glow: false,
+  spin: false,
   flow: 'unknown',
   hasHistory: false,
 })
@@ -233,6 +241,7 @@ zone('16. zone null payload (same neutral)', null, {
   fill: null,
   guard: false,
   glow: false,
+  spin: false,
   flow: 'unknown',
   hasHistory: false,
 })
@@ -272,6 +281,12 @@ check('glow on solar source is dark', rigGlowOn(state({ source: 'solar' })), fal
 check('glow on stale grid is dark', rigGlowOn(state({ source: 'grid', stale: true })), false)
 check('glow on null source is dark', rigGlowOn(state({ source: null })), false)
 check('glow on fresh grid is on', rigGlowOn(state({ source: 'grid' })), true)
+check('spin on solar source is still', turbineSpinning(state({ source: 'solar' })), false)
+check('spin on battery source is still', turbineSpinning(state({ source: 'battery' })), false)
+check('spin on stale grid is still', turbineSpinning(state({ source: 'grid', stale: true })), false)
+check('spin on null source is still', turbineSpinning(state({ source: null })), false)
+check('spin on fresh grid turns', turbineSpinning(state({ source: 'grid' })), true)
+check('spin follows glow on every source', ['solar', 'battery', 'grid', null, undefined].every((source) => turbineSpinning(state({ source })) === rigGlowOn(state({ source }))), true)
 check('flow idle at 0 W', batteryFlow(state({ batteryPowerW: 0 })), 'idle')
 check('flow unknown on NaN', batteryFlow(state({ batteryPowerW: Number.NaN })), 'unknown')
 check('empty history array reads as absent', hasSolarHistory(state({ history: [] })), false)

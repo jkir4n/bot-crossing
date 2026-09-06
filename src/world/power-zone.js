@@ -15,6 +15,7 @@ import {
   batteryFillLevel,
   batteryBelowCutoff,
   rigGlowOn,
+  turbineSpinning,
   batteryFlow,
 } from '../game/solar.js'
 
@@ -27,16 +28,32 @@ import {
  * same Composer + reveal-shader path as every other building — no new models,
  * no new colours, no new material path.
  *
+ * Tile plan (plot-local scene units, default camera at azimuth 45°):
+ *   west  solar array, pure 3x2 `solarpanel` rows — nothing else in its box
+ *   back  battery bank, two `basemodule_C` bodies side by side, fronts south
+ *   front-west  gauge: four `cargo_A` crates in a 2x2 block, fill order
+ *               front row then back row, one quartile per 25 % SoC
+ *   front-east  rig, clear of the gauge's sightline from the default camera
+ *   kerb  containers / small depot / lights as scenery, all inside the deck
+ *
  *   solar array  rows of `solarpanel`; live output glints on the panel cells
  *                of THIS mesh only (its own uGlint — town glass stays dark)
- *   battery bank a `basemodule` building; a four-block `cargo_A` gauge beside
- *                it lights one quartile per 25 % SoC, brighter while charging;
- *                at or under HA's cutoff the bank dims and the empty blocks
- *                carry a faint guard glow
- *   power station a `drill_structure` + `drill_module` rig whose emissive
- *                glows steady if and only if HA names grid as the source —
- *                dark on solar, battery, null, stale. No motion.
+ *   battery bank two `basemodule` bodies; the 2x2 `cargo_A` gauge beside
+ *                their west front lights one quartile per 25 % SoC, brighter
+ *                while charging; at or under HA's cutoff the bank dims and
+ *                the empty blocks carry a faint guard glow
+ *   rig          a `drill_structure` + `drill_module` base with a
+ *                `windturbine_low` mast on its roof and that mast's fan on
+ *                top — one composite silhouette. Grid mode reads twice:
+ *                the whole composite carries a steady POWER_ACCENT emissive
+ *                AND the fan turns, both if and only if HA names grid —
+ *                dark and still on solar, battery, null, stale.
  *   fence        containers / cargodepot / lights ringing the kerb as scenery
+ *
+ * Clearances were measured from the glb's own bounding boxes in scene units
+ * (0.4+ between structures, 0.15+ to scenery, every corner inside the hex)
+ * and the sightlines checked from the default camera, so the rig never
+ * covers the gauge or the array. See the tweak-2 handoff for the numbers.
  *
  * Pure display throughout: every target derives from the SolarState via
  * src/game/solar.js. The recorder payload (`history`) is accepted and ignored —
@@ -49,8 +66,20 @@ export const POWER_ACCENT = 0xb8942a
 const YARD_SEED = 20260906
 /** Rig glow: steady POWER_ACCENT emissive while HA names grid. Calm, no pulse. */
 const RIG_GLOW = 0.9
-/** Gauge blocks: one per quartile. */
+/** Roof plane of the drill structure in pack units — the mast stands on it. */
+const TOWER_Y = 2.0
+/** Hub height of the low turbine mast, as modelled (matches the town recipe). */
+const LOW_HUB = 0.89
+/** Rooftop fan cruise: the town masts' slow turn, fixed so every load agrees. */
+const FAN_RATE = 0.22
+/** Gauge blocks: one per quartile, in a 2x2 block, front row first. */
 const GAUGE_BLOCKS = 4
+/** Gauge crate pitch in scene units (crates are unscaled by BUILDING_SCALE). */
+const GAUGE_PITCH = 0.8
+/** Gauge block centre: tucked under the bank's west front, facing the camera. */
+const GAUGE_AT = { x: -2.2, z: 0.03 }
+/** Bank bodies: two C modules side by side, measured ±1 pack units each. */
+const BANK_BODIES = [-1.02, 1.02]
 
 /** Every kit node this module places. Checked at build time (see tools/). */
 export const POWER_NODES = [
@@ -58,6 +87,8 @@ export const POWER_NODES = [
   'basemodule_C',
   'drill_structure',
   'drill_module',
+  'windturbine_low',
+  'windturbine_low_fan',
   'cargodepot_A',
   'containers_A',
   'containers_B',
@@ -73,13 +104,21 @@ export class PowerZone {
     for (const name of POWER_NODES) {
       if (!hasPart(name)) throw new Error(`power-zone: kit has no part named "${name}"`)
     }
-    // The rig's module rides at its modelled offset above the structure base.
+    // The rig's module rides at its modelled offset above the structure base,
+    // and the low mast stands solo on the structure's roof plane.
     part('drill_structure', 'base', { solo: true }).dispose()
     part('drill_module').dispose()
+    part('windturbine_low', 'base', { solo: true }).dispose()
+    part('windturbine_low_fan').dispose()
 
     this.solar = null
     this._glint = 0
     this._rigGlow = 0
+    // The rig's own clock: the vertex shader turns every rotor it sees with
+    // the shared uTime, which can never stop for one mesh — so the rig mesh
+    // carries a private clock that only advances while HA names grid.
+    this._rigClock = { value: 0 }
+    this._rigTime = 0
     this._gauge = { lit: -1, intensity: -1, guard: null }
     this._dimmed = null
 
@@ -98,9 +137,9 @@ export class PowerZone {
 
     this.structures = []
 
-    this.array = this._raise(this._composeArray(), -2.7, 0.5)
-    this.battery = this._raise(this._composeBattery(), 0.2, -2.0)
-    this.rig = this._raise(this._composeRig(), 2.7, -0.7)
+    this.array = this._raise(this._composeArray(), -2.9, 2.0)
+    this.battery = this._raise(this._composeBattery(), -0.1, -2.9)
+    this.rig = this._raise(this._composeRig({ clock: this._rigClock }), 3.0, 1.1)
     this.fence = this._raise(this._composeFence(), 0, 0)
 
     // Grid-mode light: the rig's own material carries a steady POWER_ACCENT
@@ -120,7 +159,7 @@ export class PowerZone {
   // ── construction ──────────────────────────────────────────────────────────
 
   /** Merge composer parts into a decorated mesh on the colony's scale. */
-  _finish(composer) {
+  _finish(composer, { clock = null } = {}) {
     const geo = composer.finish()
     geo.scale(BUILDING_SCALE, BUILDING_SCALE, BUILDING_SCALE)
     // `scale()` moves positions, not the rotor pivots stored alongside them.
@@ -136,7 +175,8 @@ export class PowerZone {
       height: box.max.y,
       minY: box.min.y,
       night: buildingUniforms.uNight,
-      time: buildingUniforms.uTime,
+      // A private clock freezes the shader spin mid-pose; the shared one never stops.
+      time: clock || buildingUniforms.uTime,
       dim: buildingUniforms.uDim,
     })
     const material = decorate(
@@ -165,6 +205,8 @@ export class PowerZone {
   }
 
   _composeArray() {
+    // Pure panel rows: the old lamp + crate props shared the array's box and
+    // pushed it into the bank. Scenery lives on the kerb fence now.
     const rand = mulberry(YARD_SEED)
     const c = new Composer()
     for (let i = 0; i < 3; i++) {
@@ -176,34 +218,45 @@ export class PowerZone {
         })
       }
     }
-    c.add('lights', { x: 1.9, z: -0.7, s: 0.8 })
-    c.add('containers_B', { x: -1.9, z: 0.7, ry: 0.4 })
     return this._finish(c)
   }
 
   _composeBattery() {
+    // Two C bodies side by side, fronts (+z, the 1.21 overhang) facing the
+    // gauge and the camera. One body read as a shed; two read as the bank
+    // that powers the colony.
     const c = new Composer()
-    c.add('basemodule_C')
-    // West of the bank: east is the rig.
-    c.add('containers_D', { x: -1.7, z: 0.6, ry: 0.4 })
+    for (const bx of BANK_BODIES) c.add('basemodule_C', { x: bx })
     return this._finish(c)
   }
 
-  _composeRig() {
-    // Structure without its module, plus the module at its modelled offset —
-    // the same solo-plus-offset shape as the town's turbine recipe.
-    return this._finish(new Composer().add('drill_structure', { solo: true }).add('drill_module', { y: 1 }))
+  _composeRig({ clock } = {}) {
+    // One composite silhouette, bottom to top: structure solo, its module at
+    // the modelled offset, the low mast solo standing on the roof plane, and
+    // that mast's fan at hub height — the town antenna's slow vertex-shader
+    // spin recipe, gated by the rig's private clock (see update).
+    return this._finish(
+      new Composer()
+        .add('drill_structure', { solo: true })
+        .add('drill_module', { y: 1 })
+        .add('windturbine_low', { solo: true, y: TOWER_Y })
+        .add('windturbine_low_fan', { y: TOWER_Y + LOW_HUB, spin: FAN_RATE }),
+      { clock }
+    )
   }
 
   _composeFence() {
     const rand = mulberry(YARD_SEED + 1)
     const c = new Composer()
-    const props = ['containers_A', 'containers_B', 'containers_C', 'cargodepot_A', 'containers_D', 'lights']
+    // The depot rides the roomy north slot: on the tight west slot its corner
+    // hung a full unit past the deck edge. A small crate takes the west slot.
+    const props = ['containers_A', 'cargodepot_A', 'containers_C', 'containers_B', 'containers_D', 'lights']
     this.fenceSpots = []
     ;[0.3, 1.3, 2.4, 3.5, 4.6, 5.6].forEach((a, i) => {
       const name = props[i % props.length]
+      const s = name === 'lights' ? 1.1 : name === 'cargodepot_A' ? 0.7 : 1.35
       const geo = part(name)
-      geo.scale(name === 'lights' ? 1.1 : 1.35, name === 'lights' ? 1.1 : 1.35, name === 'lights' ? 1.1 : 1.35)
+      geo.scale(s, s, s)
       geo.rotateY(rand() * Math.PI * 2)
       const r = PLOT_CELL * (0.68 + rand() * 0.06)
       const px = Math.cos(a) * r
@@ -223,17 +276,18 @@ export class PowerZone {
   }
 
   _buildGauge() {
-    // Four crates in a row by the bank: fill quartiles, nothing more.
+    // Four crates in a 2x2 block by the bank's west front: fill quartiles in
+    // front-row-then-back order, so the level reads from the default camera.
+    // Quartile logic unchanged — only the arrangement moved with the bank.
     const probe = part('cargo_A')
     probe.computeBoundingBox()
     const box = probe.boundingBox.clone()
     probe.dispose()
-    const w = box.max.x - box.min.x
     const gauge = new THREE.Group()
     this.gaugeBlocks = []
     for (let i = 0; i < GAUGE_BLOCKS; i++) {
       const geo = part('cargo_A')
-      geo.translate(-box.min.x - w / 2, -box.min.y, -(box.min.z + box.max.z) / 2)
+      geo.translate(-box.min.x - (box.max.x - box.min.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2)
       geo.scale(1.2, 1.2, 1.2)
       const material = new THREE.MeshStandardMaterial({
         map: atlasTexture(),
@@ -244,7 +298,11 @@ export class PowerZone {
       })
       const mesh = new THREE.Mesh(geo, material)
       mesh.castShadow = true
-      mesh.position.set(0.2 + (i - (GAUGE_BLOCKS - 1) / 2) * (w * 1.2 + 0.3), DECK_TOP, 0.1)
+      mesh.position.set(
+        GAUGE_AT.x + ((i % 2) - 0.5) * GAUGE_PITCH,
+        DECK_TOP,
+        GAUGE_AT.z + (0.5 - Math.floor(i / 2)) * GAUGE_PITCH
+      )
       gauge.add(mesh)
       this.gaugeBlocks.push(mesh)
     }
@@ -294,12 +352,16 @@ export class PowerZone {
       this.battery.mesh.material.color.setScalar(guard ? 0.55 : 1)
     }
 
-    // Station rig: grid glow or darkness, nothing between. Damped so the
-    // changeover reads as a lamp warming, not a blink.
+    // Station rig: grid glow plus rooftop fan, or darkness and still air.
+    // Damped glow so the changeover reads as a lamp warming, not a blink;
+    // the fan holds mid-pose the moment grid leaves — the private clock the
+    // shader reads simply stops advancing.
     const rigTarget = rigGlowOn(this.solar) ? 1 : 0
     this._rigGlow += (rigTarget - this._rigGlow) * k
     if (Math.abs(this._rigGlow - rigTarget) < 0.001) this._rigGlow = rigTarget
     this.rig.mesh.material.emissiveIntensity = this._rigGlow * RIG_GLOW
+    if (turbineSpinning(this.solar)) this._rigTime += dt
+    this._rigClock.value = this._rigTime
 
     // Deck kerb + lamps follow the town's night dimming, never urgent.
     this.plot.setNight(night, false, elapsed, solarDimFactor(this.solar))

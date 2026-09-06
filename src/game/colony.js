@@ -605,7 +605,7 @@ export class Colony {
         obstacles.push({ x: plot.center.x + spot.x, z: plot.center.z + spot.z, r: spot.r + AGENT_RADIUS })
       }
     }
-    // The power zone's array, bank, mast, fence and gauge, in world space.
+    // The power zone's array, bank, rig, fence and gauge, in world space.
     if (this.powerZone) {
       for (const spot of this.powerZone.navSpots()) {
         obstacles.push({ x: spot.x, z: spot.z, r: spot.r + AGENT_RADIUS })
