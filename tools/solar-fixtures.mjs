@@ -6,6 +6,8 @@
  * missing payloads, null fields, the glint ceiling — and asserts the visuals land
  * exactly where the design matrix says: glint level, HA clock
  * target, the one-line readout, and the power zone's fill/lit-count/guard/glow/spin/flow helpers.
+ * The mast-lamp beacon asserts through the same door: one pattern per source word,
+ * the rhythm pinned per pattern, and the travelling flow step pinned per current.
  * The power statistics panel asserts through the same door: live-state mapping
  * (nulls to dashes) with spin/glow unchanged. The panel renders live rows only —
  * recorder history stays a backend passthrough the panel never reads.
@@ -29,6 +31,10 @@ import {
   rigGlowOn,
   turbineSpinning,
   batteryFlow,
+  beaconPattern,
+  beaconLevel,
+  beaconBrightness,
+  flowPulseIndex,
   hasSolarHistory,
   powerPanel,
   powerHistorySeries,
@@ -367,6 +373,55 @@ check('bank clamps below empty', batteryLitCount(state({ batterySoC: -4 }), 4), 
 check('empty history array reads as absent', hasSolarHistory(state({ history: [] })), false)
 check('non-array history reads as absent', hasSolarHistory(state({ history: { samples: [] } })), false)
 check('history never moves the glint', solarGlintLevel(state({ solarPowerW: 1500, history: [[1, 2]] })), 0.5)
+
+// ── mast beacon + flow pulse ──────────────────────────────────────────────────
+
+console.log('\n23. beacon pattern follows the source word only (stale/null/unknown read dark)')
+check('grid reads double-flash', beaconPattern(state({ source: 'grid' })), 'double-flash')
+check('battery reads pulse', beaconPattern(state({ source: 'battery' })), 'pulse')
+check('solar reads steady', beaconPattern(state({ source: 'solar' })), 'steady')
+check('null source reads dark', beaconPattern(state({ source: null })), 'dark')
+check('missing source reads dark', beaconPattern(state({})), 'dark')
+check('unknown source word reads dark', beaconPattern(state({ source: 'mains' })), 'dark')
+check('stale grid reads dark', beaconPattern(state({ source: 'grid', stale: true })), 'dark')
+check('null payload reads dark', beaconPattern(null), 'dark')
+
+console.log('\n24. beacon rhythms pinned per pattern (double flash / slow pulse / steady / dark)')
+check('double-flash first pulse on', beaconLevel('double-flash', 0.05), 1)
+check('double-flash gap between pulses', beaconLevel('double-flash', 0.2), 0)
+check('double-flash second pulse on', beaconLevel('double-flash', 0.35), 1)
+check('double-flash trailing edge', beaconLevel('double-flash', 0.5), 0)
+check('double-flash long pause stays dark', beaconLevel('double-flash', 1.5), 0)
+check('double-flash wraps to the next period', beaconLevel('double-flash', 2.85), 1)
+check('double-flash rests dark without a clock', beaconLevel('double-flash', Number.NaN), 0)
+check('pulse starts from its dim base', beaconLevel('pulse', 0), 0.06)
+check('pulse swells mid-beat', Math.abs(beaconLevel('pulse', 0.8) - 0.66) < 1e-9, true)
+check('pulse rests at base between beats', beaconLevel('pulse', 2.5), 0.06)
+check('pulse rests at base without a clock', beaconLevel('pulse', Number.NaN), 0.06)
+check('steady holds its soft glow', beaconLevel('steady', 123.4), 0.55)
+check('dark holds at any clock', beaconLevel('dark', 0.05), 0)
+check('unknown pattern never flashes', beaconLevel('strobe', 0.05), 0)
+check('grid payload flashes end to end', beaconBrightness(state({ source: 'grid' }), 0.05), 1)
+check('grid payload pauses end to end', beaconBrightness(state({ source: 'grid' }), 1.5), 0)
+check('battery payload rests end to end', beaconBrightness(state({ source: 'battery', batteryPowerW: -300 }), 2.5), 0.06)
+check('solar payload glows end to end', beaconBrightness(state({ source: 'solar' }), 9.9), 0.55)
+check('stale payload never lights end to end', beaconBrightness(state({ source: 'grid', stale: true }), 0.05), 0)
+check('null payload never lights end to end', beaconBrightness(null, 0.05), 0)
+
+console.log('\n25. flow pulse walks the row with the current (discharge west->east, charge back)')
+check('discharge starts west', flowPulseIndex(state({ batteryPowerW: -300, source: 'battery' }), 0), 0)
+check('discharge steps east', flowPulseIndex(state({ batteryPowerW: -300, source: 'battery' }), 1.5), 1)
+check('discharge reaches far east', flowPulseIndex(state({ batteryPowerW: -300, source: 'battery' }), 4.3), 3)
+check('discharge wraps to west', flowPulseIndex(state({ batteryPowerW: -300, source: 'battery' }), 5.7), 0)
+check('charge starts east', flowPulseIndex(state({ batteryPowerW: 400, source: 'solar' }), 0), 3)
+check('charge steps west', flowPulseIndex(state({ batteryPowerW: 400, source: 'solar' }), 1.5), 2)
+check('charge reaches far west', flowPulseIndex(state({ batteryPowerW: 400, source: 'solar' }), 4.3), 0)
+check('idle shows no step', flowPulseIndex(state({ batteryPowerW: 0, source: 'grid' }), 1.5), -1)
+check('null watts show no step', flowPulseIndex(state({ batteryPowerW: null }), 1.5), -1)
+check('stale shows no step', flowPulseIndex(state({ batteryPowerW: -300, stale: true }), 0.5), -1)
+check('null payload shows no step', flowPulseIndex(null, 0.5), -1)
+check('no clock shows no step', flowPulseIndex(state({ batteryPowerW: -300 }), Number.NaN), -1)
+check('empty row shows no step', flowPulseIndex(state({ batteryPowerW: -300 }), 1.5, 0), -1)
 
 console.log(`\n${checks - failures}/${checks} checks passed`)
 if (failures) {

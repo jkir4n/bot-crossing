@@ -96,6 +96,52 @@ export function turbineSpinning(solar) {
   return isSolarFresh(solar) && solar.source === 'grid'
 }
 
+// ── mast beacon (function of solar.source only, like glow/spin) ─────────────
+
+/**
+ * Which blink pattern the rooftop mast lamps show. One state, one rhythm —
+ * both rigs share it, so they blink in sync. Stale, null and unknown sources
+ * read as dark: the colony never fakes a state.
+ *   grid    -> 'double-flash' (two quick pulses, then a pause — beacon rhythm)
+ *   battery -> 'pulse'        (one soft swell every few seconds)
+ *   solar   -> 'steady'       (a calm constant glow)
+ */
+export function beaconPattern(solar) {
+  if (!isSolarFresh(solar)) return 'dark'
+  if (solar.source === 'grid') return 'double-flash'
+  if (solar.source === 'battery') return 'pulse'
+  if (solar.source === 'solar') return 'steady'
+  return 'dark'
+}
+
+/**
+ * Beacon brightness 0..1 for a pattern at `t` seconds. The renderer feeds the
+ * shared frame clock, so both rig lamps march together; the renderer scales
+ * by its own peak emissive. Calm by design: the double flash is two 0.14 s
+ * pulses inside a 2.8 s period, the battery pulse one 1.6 s swell inside
+ * 4 s — night-visible, never strobing. Unknown patterns and non-finite
+ * clocks fall back to the pattern's resting level, never to a flash.
+ */
+export function beaconLevel(pattern, t) {
+  if (pattern === 'steady') return 0.55
+  if (pattern === 'double-flash') {
+    if (!Number.isFinite(t)) return 0
+    const p = ((t % 2.8) + 2.8) % 2.8
+    return p < 0.14 || (p >= 0.28 && p < 0.42) ? 1 : 0
+  }
+  if (pattern === 'pulse') {
+    if (!Number.isFinite(t)) return 0.06
+    const ph = ((t % 4) + 4) % 4
+    return ph < 1.6 ? 0.06 + 0.6 * Math.sin((Math.PI * ph) / 1.6) : 0.06
+  }
+  return 0
+}
+
+/** End-to-end beacon brightness straight from the SolarState and a clock. */
+export function beaconBrightness(solar, t) {
+  return beaconLevel(beaconPattern(solar), t)
+}
+
 /** Which way energy is flowing through the battery, from its meter sign only. */
 export function batteryFlow(solar) {
   if (!isSolarFresh(solar)) return 'unknown'
@@ -104,6 +150,22 @@ export function batteryFlow(solar) {
   if (w > 0) return 'charge'
   if (w < 0) return 'discharge'
   return 'idle'
+}
+
+/**
+ * Which battery block carries the faint travelling flow step at `t` seconds,
+ * west-to-east index (0-based) over `blocks` — or -1 for none. Discharge
+ * walks toward the colony (west->east), charge walks back east->west, and
+ * idle/unknown/stale/null show no step at all. One 1.4 s step per block, so
+ * a full crossing takes 5.6 s: deliberately slower than the mast beacon.
+ */
+export function flowPulseIndex(solar, t, blocks = 4) {
+  if (!Number.isInteger(blocks) || blocks <= 0) return -1
+  const flow = batteryFlow(solar)
+  if (flow !== 'charge' && flow !== 'discharge') return -1
+  if (!Number.isFinite(t)) return -1
+  const step = Math.floor(Math.max(0, t) / 1.4) % blocks
+  return flow === 'discharge' ? step : blocks - 1 - step
 }
 
 /**
