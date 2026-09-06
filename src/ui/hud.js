@@ -578,18 +578,14 @@ export class Hud {
 
   /**
    * Live energy state into the power pane. Renders display strings from the
-   * pure powerPanel mapper (nulls already dashes there) plus one raw
-   * dot-to-dot sparkline per recorder entity array — no totals, no kWh math.
+   * pure powerPanel mapper (nulls already dashes there) — live rows only.
    */
   setPower(solar) {
     this._powerSolar = solar && typeof solar === 'object' ? solar : null
     const view = powerPanel(this._powerSolar)
-    const histSig = view.history.series
-      .map((s) => `${s.id}:${s.points.length}:${s.points[s.points.length - 1]}`)
-      .join('|')
     const signature =
       `${this._powerOpen ? 1 : 0}~${view.stale}~${view.sourceLabel}~${view.solarW}~${view.soc}~` +
-      `${view.batteryW}~${view.gridLine}~${view.cutoff}~${view.cutIn}~${view.subline}~${histSig}`
+      `${view.batteryW}~${view.gridLine}~${view.cutoff}~${view.cutIn}~${view.subline}`
     if (this._last.power === signature) return
     this._last.power = signature
 
@@ -611,20 +607,6 @@ export class Hud {
     ]
     this.$('.power-detail .power-rows').innerHTML = rows
       .map(([k, v]) => `<div class="power-row"><span class="k">${k}</span><span class="v">${escapeHtml(v)}</span></div>`)
-      .join('')
-
-    const trend = this.$('.power-detail .power-trend')
-    if (!view.history.present) {
-      trend.innerHTML = `<div class="power-note">${escapeHtml(view.history.note)}</div>`
-      return
-    }
-    trend.innerHTML = view.history.series
-      .map(
-        (s) =>
-          `<div class="power-series" style="color:${hex(POWER_ACCENT)}">` +
-          `<div class="sid" title="${escapeHtml(s.id)}">${escapeHtml(s.id)} · ${s.points.length} samples</div>` +
-          `${sparkline(s.points)}</div>`
-      )
       .join('')
   }
 
@@ -858,35 +840,6 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 }
 
-/**
- * A raw dot-to-dot line over verbatim recorder samples — the line itself is the
- * only interpolation. No axes, no totals: the entity id and sample count label it.
- */
-function sparkline(points) {
-  const w = 100
-  const h = 28
-  const pad = 3
-  const fmt = (n) => String(Math.round(n * 10) / 10)
-  let inner
-  if (points.length === 1) {
-    inner = `<circle cx="${w / 2}" cy="${h / 2}" r="2.5"/>`
-  } else {
-    let min = points[0]
-    let max = points[0]
-    for (const v of points) {
-      if (v < min) min = v
-      if (v > max) max = v
-    }
-    const span = max - min || 1
-    const step = (w - pad * 2) / (points.length - 1)
-    const pts = points
-      .map((v, i) => `${fmt(pad + i * step)},${fmt(h - pad - ((v - min) / span) * (h - pad * 2))}`)
-      .join(' ')
-    inner = `<polyline points="${pts}" vector-effect="non-scaling-stroke"/>`
-  }
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${inner}</svg>`
-}
-
 /** Status → the colour family the top-bar counters already use for it. */
 function statusClass(status) {
   if (status === 'working') return 'working'
@@ -998,8 +951,6 @@ const TEMPLATE = `
         <button class="btn icon ghost" id="btn-locate-power" title="Fly to the power zone">${ICON.locate}</button>
       </div>
       <div class="power-rows"></div>
-      <div class="threads-head"><span>Trend · HA recorder</span></div>
-      <div class="power-trend"></div>
     </div>
   </div>
 </aside>

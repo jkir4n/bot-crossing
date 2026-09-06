@@ -1008,14 +1008,12 @@ body {
 }
 
 .side .projects::-webkit-scrollbar,
-.side .threads::-webkit-scrollbar,
-.side .power-trend::-webkit-scrollbar {
+.side .threads::-webkit-scrollbar {
   width: 8px;
 }
 
 .side .projects::-webkit-scrollbar-thumb,
-.side .threads::-webkit-scrollbar-thumb,
-.side .power-trend::-webkit-scrollbar-thumb {
+.side .threads::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.14);
   border-radius: 8px;
 }
@@ -1158,54 +1156,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.side .power-trend {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 2px 0 12px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
-}
-
-.side .power-note {
-  padding: 8px 15px;
-  font-size: 12px;
-  color: var(--dim);
-}
-
-.side .power-series {
-  padding: 7px 15px 3px;
-}
-
-.side .power-series .sid {
-  font-size: 10.5px;
-  color: var(--dim);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-bottom: 3px;
-}
-
-.side .spark {
-  display: block;
-  width: 100%;
-  height: 34px;
-}
-
-.side .spark polyline {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.side .spark circle {
-  fill: currentColor;
 }
 
 /* ── toasts + readouts ───────────────────────────────────────────────────────────── */

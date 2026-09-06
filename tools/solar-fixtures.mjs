@@ -6,8 +6,9 @@
  * missing payloads, null fields, the glint ceiling — and asserts the visuals land
  * exactly where the design matrix says: glint level, night-dim factor, HA clock
  * target, the one-line readout, and the power zone's fill/guard/glow/spin/flow helpers.
- * The power statistics panel asserts through the same door: panel-state mapping
- * (nulls to dashes, absent history to its quiet note) with spin/glow unchanged.
+ * The power statistics panel asserts through the same door: live-state mapping
+ * (nulls to dashes) with spin/glow unchanged. The panel renders live rows only —
+ * recorder history stays a backend passthrough the panel never reads.
  *
  * Colony rule: pure display of HA facts. A null source is neutral, always — the
  * colony never infers a conserving state from discharge alone. History is a
@@ -265,36 +266,34 @@ function panel(title, solar, expect) {
   check('  cutIn', v.cutIn, expect.cutIn)
   check('  gridLine', v.gridLine, expect.gridLine)
   check('  subline', expect.stale ? v.subline : v.subline.startsWith('live'), expect.stale ? 'stale — showing neutral' : true)
-  check('  history.present', v.history.present, expect.present)
-  check('  history.note', v.history.note, expect.note)
 }
 
 panel('17. panel live (solar surplus, charging)', state({ solarPowerW: 1500, batteryPowerW: 400, batterySoC: 82, cutoff: 20, cutIn: 50, source: 'solar' }), {
   stale: false, sourceLabel: 'Solar', solarW: '1500 W', soc: '82 %', batteryW: '400 W · charging',
-  flowLabel: 'Charging', cutoff: '20 %', cutIn: '50 %', gridLine: 'On own power', present: false, note: 'no history from HA',
+  flowLabel: 'Charging', cutoff: '20 %', cutIn: '50 %', gridLine: 'On own power',
 })
 
 panel('18. panel grid mode (mains, thresholds as HA reports them)', state({ isDay: false, solarPowerW: 0, batterySoC: 18, batteryPowerW: 0, cutoff: 20, cutIn: 50, source: 'grid' }), {
   stale: false, sourceLabel: 'Grid', solarW: '0 W', soc: '18 %', batteryW: '0 W · idle',
-  flowLabel: 'Idle', cutoff: '20 %', cutIn: '50 %', gridLine: 'Grid connected', present: false, note: 'no history from HA',
+  flowLabel: 'Idle', cutoff: '20 %', cutIn: '50 %', gridLine: 'Grid connected',
 })
 
 panel('19. panel nulls render as em dashes, never NaN', state({ solarPowerW: null, batterySoC: null, batteryPowerW: null, cutoff: null, cutIn: null, source: null, isDay: null }), {
   stale: false, sourceLabel: '—', solarW: '—', soc: '—', batteryW: '—',
-  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—', present: false, note: 'no history from HA',
+  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—',
 })
 
-panel('20. panel stale (everything neutral, recorder note)', state({ stale: true, lastUpdatedAt: 0, lastError: 'fetch failed' }), {
+panel('20. panel stale (everything neutral)', state({ stale: true, lastUpdatedAt: 0, lastError: 'fetch failed' }), {
   stale: true, sourceLabel: '—', solarW: '—', soc: '—', batteryW: '—',
-  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—', present: false, note: 'no history from HA',
+  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—',
 })
 
 panel('21. panel null payload (same neutral)', null, {
   stale: true, sourceLabel: '—', solarW: '—', soc: '—', batteryW: '—',
-  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—', present: false, note: 'no history from HA',
+  flowLabel: '—', cutoff: '—', cutIn: '—', gridLine: '—',
 })
 
-console.log('\n22. panel history renders raw samples only')
+console.log('\n22. recorder history parses raw samples only (panel renders none of it)')
 const histSolar = state({
   solarPowerW: 1500, batteryPowerW: -60, batterySoC: 81, source: 'solar',
   history: [
@@ -310,14 +309,12 @@ const histSolar = state({
     ],
   ],
 })
-const pv = powerPanel(histSolar)
-check('  history.present', pv.history.present, true)
-check('  history.note', pv.history.note, null)
-check('  series count', pv.history.series.length, 2)
-check('  first id verbatim', pv.history.series[0].id, 'sensor.solar_power')
-check('  raw order, no averaging', JSON.stringify(pv.history.series[0].points), JSON.stringify([100, 200, 300]))
-check('  non-numeric drops out', JSON.stringify(pv.history.series[1].points), JSON.stringify([80.5, 81]))
-check('  history never moves the panel numbers', pv.solarW, '1500 W')
+const hseries = powerHistorySeries(histSolar)
+check('  series count', hseries.length, 2)
+check('  first id verbatim', hseries[0].id, 'sensor.solar_power')
+check('  raw order, no averaging', JSON.stringify(hseries[0].points), JSON.stringify([100, 200, 300]))
+check('  non-numeric drops out', JSON.stringify(hseries[1].points), JSON.stringify([80.5, 81]))
+check('  history never moves the panel numbers', powerPanel(histSolar).solarW, '1500 W')
 check('  empty history array reads as no series', powerHistorySeries(state({ history: [] })).length, 0)
 check('  non-array history reads as no series', powerHistorySeries(state({ history: { samples: [] } })).length, 0)
 check('  absent history reads as no series', powerHistorySeries(state()).length, 0)
