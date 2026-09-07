@@ -8,7 +8,10 @@
   CRLF-aware replacement, never fuzzy-indent. scp pulls need forward slashes.
 - **Linux host** (colony server home). Node v22 present. RAM tight → production
   build only.
-- **Home Assistant** — solar tile data source (REST, ~60s poll).
+- **Home Assistant** — power-zone data source (REST, ~60s poll): production,
+      battery SoC/power, optional grid-mode entity + cutoff/cut-in thresholds,
+      recorder history passthrough. Operator env only (server/ha-solar.conf.example);
+      HA holds ALL house logic — colony fetches and renders, never derives.
 
 ## Upstream facts (verified Sep 2026, static review only — never cloned)
 
@@ -89,14 +92,24 @@
       Revisit only if serve is ever deliberately bound to the LAN interface.
 
 ### Phase 2 — signature + actions
-- [x] Solar tile (06 Sep 2026): HA REST poller (`server/ha-solar.mjs`, operator
-      env config only — no compiled-in entity IDs, `40cba11`+`53e141a`) →
-      `/api/solar`; UI (`0cd1192`, src/game/solar.js + hud/colony wiring): HA
-      time-source mode in Lighting settings (damped follow, 60s peek on
-      drag/L, manual controls greyed not hidden), panel glint, solar/battery/
-      grid 3-state lighting, one-line readout, nulls render neutral.
-      79/79 fixture checks (tools/solar-fixtures.mjs). Verified live: solar W,
-      battery SoC/power (NEGATIVE=discharge), cutoff/cutIn from HA entities.
+- [x] Power zone (07 Sep 2026, supersedes the 06 Sep solar tile; user-approved):
+      dedicated fenced power tile built ONLY from verified spacebase.glb nodes
+      (tools/verify-power-nodes.mjs triangle-bounds checks) — west 3x2 solar
+      array (glint gated by production), 1x4 double-scale battery row (SoC
+      quartiles as lit blocks; ACTIVE block fast-breathes on discharge,
+      quick-blinks on charge), two drill+turbine rigs with ship-recipe sphere
+      beacons on the mast tips (grid double-flash / battery slow pulse / solar
+      steady glow / HA-silent dark) and rooftop fans + rig glow on grid only.
+      Click the tile → stats panel (repo-panel sidebar slot; live rows only —
+      trend section removed by user; nulls → dashes). Town brightness no longer
+      varies with power source (battery-dim path removed); sidebar pill removed.
+      Data: server/ha-solar.mjs polls HA (~60s) → /api/solar with explicit
+      source mapping (HA_GRID_ENTITY on→grid/off→battery — never inferred),
+      cutoff/cutIn pass-through, solar.history[] as verbatim HA-recorder
+      passthrough. Operator env config only (server/ha-solar.conf.example
+      template; NO compiled-in entity IDs). 40cba11+53e141a+68e9bce BE,
+      0cd1192+925bee1..31eb65e FE. 278/278 fixtures. All house logic lives in
+      HA — the colony fetches and renders, zero derivation (user rule).
 - [ ] Remote-open listener on WinPC (authenticated, LAN).
 - [ ] Hermes roster: walking-between-projects variant (design first; renderer `src/` changes —
       fork-only). Other harnesses stay per-session by user decision — no folding.

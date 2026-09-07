@@ -313,6 +313,38 @@ Eye colours, lamps, windows, crop rows and plot kerbs are all authored above 1.0
 pass picks them out. The threshold is deliberately high (0.92) — only those things clear it,
 so lit surfaces stay crisp instead of going hazy.
 
+## The power zone (this fork)
+
+At the colony's edge sits a dedicated power tile that mirrors a real home's
+energy story, live from Home Assistant: a solar array, a battery bank whose
+blocks fill and animate with the house's state of charge, and two drill rigs
+whose rooftop turbines spin only while the home is actually on the grid.
+
+Nothing about it is computed by the colony. A small poller (server/ha-solar.mjs)
+reads a Home Assistant instance every ~60 seconds and the tile renders exactly
+what HA reported — including the mode (solar / battery / grid) and the battery's
+cut-off/cut-in thresholds, all taken from HA rather than guessed. When HA is
+unreachable the tile goes neutral; when an input isn't configured it simply
+doesn't appear. Clicking the tile opens a stats panel with the live numbers.
+
+### Wiring it up
+
+Everything is operator configuration — no entity IDs are compiled in. Copy
+server/ha-solar.conf.example to
+~/.config/systemd/user/bot-crossing.service.d/ha.conf, fill in your HA URL,
+a long-lived access token, and the entity IDs you want the tile to mirror
+(production, battery SoC, battery power, optionally a grid-mode entity and
+threshold sensors), then restart the service. Not configured means not
+rendered — the tile sits neutral and the rest of the colony is unaffected.
+All house logic stays in Home Assistant; the colony fetches and displays.
+
+### The Lighting settings
+
+The existing Lighting panel gains a Home-Assistant time mode: when enabled,
+the colony's day/night cycle follows the sun state HA reports, with the manual
+sliders greyed out but visible. Drag the sky or press `L` for a 60-second peek
+at manual control; let go and it eases back to HA time.
+
 ## Where the art comes from
 
 The colony is built out of two CC0 asset packs by **[Kay Lousberg](https://kaylousberg.com)**,
