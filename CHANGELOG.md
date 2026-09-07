@@ -1,5 +1,26 @@
 # Changelog — Bot Crossing Colony
 
+## 2026-09-07 — Power zone: the colony's dedicated power tile (HA-truth visuals)
+
+The "solar tile" became a real place: a fenced power plot on a reserved colony cell, built
+entirely from existing spacebase.glb pack nodes (zero new geometry), rendering the house
+1:1 — the colony computes nothing; every state shown is what Home Assistant reported.
+
+- Backend (`68e9bce`): grid-source wire — operator configures the grid/mains entity
+  (env-only); explicit state mapping (on→grid / off→battery), never inferred.
+  `solar.history[]` = verbatim HA-recorder passthrough (no colony storage/math).
+- Zone (`925bee1`→`31eb65e`): west 3x2 solar array (glint gated by production), 1x4
+  double-scale battery row — SoC quartiles as lit blocks, the ACTIVE block fast-breathes on
+  discharge and quick-blinks on charge (rhythm asserted in fixtures), two drill+turbine rigs
+  with ship-recipe sphere beacons atop the masts (grid double-flash / battery slow pulse /
+  solar steady glow / HA-silent dark), spinning rooftop fans + rig glow on grid only.
+- Click panel (`546c5cd`, trimmed `6882716`): live rows (source, solar W, SoC, battery W
+  direction, cutoff/cut-in) in the repo-panel sidebar slot; nulls render as dashes.
+- Town lighting no longer varies with power source (battery/grid dim path removed).
+- Sidebar pill removed (superseded by the zone itself).
+- Guardrails: no entity IDs/names baked in code (operator drop-in only; repo ships
+  `server/ha-solar.conf.example` template); fixtures extended per tweak to 278 checks.
+
 ## 2026-09-06 — Solar tile: Home Assistant drives the colony's power story
 
 - `40cba11` — solar: HA REST poller `server/ha-solar.mjs` (separate ~60s
