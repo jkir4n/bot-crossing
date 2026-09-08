@@ -291,6 +291,14 @@ export function hasSolarHistory(solar) {
 
 const fmtW = (w) => (Number.isFinite(w) ? `${Math.round(w)} W` : '—')
 const fmtPct = (s) => (Number.isFinite(s) ? `${s} %` : '—')
+/** Fixed 24h HH:MM:SS clock — never locale-dependent (no AM/PM). */
+const fmtClock = (t) =>
+  new Date(t).toLocaleTimeString('en-GB', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 
 /**
  * The one-line panel readout: solar watts, battery percent, and a source mark
@@ -330,7 +338,7 @@ export function solarReadout(solar) {
   if (Number.isFinite(solar.cutoff) || Number.isFinite(solar.cutIn)) {
     bits.push(`grid at ${fmtPct(solar.cutoff)} / release ${fmtPct(solar.cutIn)}`)
   }
-  if (solar.lastUpdatedAt) bits.push(`updated ${new Date(solar.lastUpdatedAt).toLocaleTimeString()}`)
+  if (solar.lastUpdatedAt) bits.push(`updated ${fmtClock(solar.lastUpdatedAt)}`)
   if (solar.lastError) bits.push(solar.lastError)
   return { text, title: bits.join(' · '), stale: false }
 }
@@ -395,7 +403,7 @@ export function powerPanel(solar) {
     gridLine: source === 'grid' ? 'Grid connected' : source === 'solar' || source === 'battery' ? 'On own power' : DASH,
     subline: fresh
       ? solar.lastUpdatedAt
-        ? `live · updated ${new Date(solar.lastUpdatedAt).toLocaleTimeString()}`
+        ? `live · updated ${fmtClock(solar.lastUpdatedAt)}`
         : 'live'
       : 'stale — showing neutral',
     history: {
