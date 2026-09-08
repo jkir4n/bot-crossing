@@ -7,7 +7,7 @@
  *
  * SolarState contract (pinned with the renderer — change only in lockstep):
  *   { isDay, solarPowerW, batterySoC, batteryPowerW,
- *     cutoff, cutIn, source, stale, lastUpdatedAt, lastError }
+ *     cutoff, cutIn, source, stale, lastUpdatedAt, lastError, moonPhase }
  *   isDay: boolean|null — from HA sun.sun elevation; solar-W hysteresis fallback
  *   solarPowerW: number|null — W, >= 0
  *   batterySoC: number|null — %, 0..100
@@ -40,11 +40,18 @@
  *     consecutive failed rounds (401/403 goes stale immediately, once).
  *   lastUpdatedAt: epoch ms of last successful round, 0 if never.
  *   lastError: last failure message, null if none.
+ *   moonPhase: string|null — VERBATIM HA moon-integration phase enum
+ *     (new_moon|waxing_crescent|first_quarter|waxing_gibbous|full_moon|
+ *     waning_gibbous|last_quarter|waning_crescent) from HA_MOON_ENTITY.
+ *     Anything else (unknown/unavailable/missing/unreachable) => null —
+ *     never invented. HA decides; the colony only display-maps. Stale
+ *     rules identical to the other fields.
  *
  * Config (operator environment, never the repo):
  *   HA_BASE_URL / HA_TOKEN — absent => poller disabled, neutral state forever.
  *   HA_SOLAR_POWER_ENTITY / HA_BATTERY_SOC_ENTITY / HA_BATTERY_POWER_ENTITY
- *   HA_SUN_ENTITY (default sun.sun) / HA_GRID_ENTITY (default empty = source null)
+ *   HA_SUN_ENTITY (default sun.sun) / HA_MOON_ENTITY (default sensor.moon_phase)
+ *   HA_GRID_ENTITY (default empty = source null)
  *   HA_CUTOFF_ENTITY / HA_CUTIN_ENTITY (threshold pass-through, optional fields)
  *   HA_POLL_MS (60000) / HA_TIMEOUT_MS (5000) / HA_STALE_AFTER (2)
  *   HA_HISTORY_HOURS (1, 0 disables) — recorder window for history proxy
@@ -63,6 +70,7 @@ const cfg = () => ({
   socEntity: process.env.HA_BATTERY_SOC_ENTITY || '',
   powerEntity: process.env.HA_BATTERY_POWER_ENTITY || '',
   sunEntity: process.env.HA_SUN_ENTITY || 'sun.sun',
+  moonEntity: process.env.HA_MOON_ENTITY || 'sensor.moon_phase',
   gridEntity: process.env.HA_GRID_ENTITY || '',
   cutoffEntity: process.env.HA_CUTOFF_ENTITY || '',
   cutinEntity: process.env.HA_CUTIN_ENTITY || '',
@@ -85,6 +93,7 @@ const neutral = (lastError = null) => ({
   stale: true,
   lastUpdatedAt: 0,
   lastError,
+  moonPhase: null,
 });
 
 let state = neutral();
@@ -140,6 +149,28 @@ function parseSource(entity) {
   if (s.includes('battery') || s.includes('bat ')) return 'battery';
   if (s.includes('grid') || s.includes('mains') || s.includes('utility') || s.includes('bypass')) return 'grid';
   return null;
+}
+
+/**
+ * moonPhase comes FROM HA, never derived. The HA moon integration reports
+ * one of 8 phase enum states — passed through VERBATIM. Anything else
+ * (unknown/unavailable/missing entity) => null, never a guessed phase.
+ */
+const MOON_PHASES = new Set([
+  'new_moon',
+  'waxing_crescent',
+  'first_quarter',
+  'waxing_gibbous',
+  'full_moon',
+  'waning_gibbous',
+  'last_quarter',
+  'waning_crescent',
+]);
+
+function parseMoonPhase(entity) {
+  if (!entity || typeof entity.state !== 'string') return null;
+  const s = entity.state.trim().toLowerCase();
+  return MOON_PHASES.has(s) ? s : null;
 }
 
 function parseIsDay(sunEntity, solarW, prev) {
@@ -230,7 +261,7 @@ export async function fetchOnce() {
   if (inFlight) return snapshot(); // skip a tick — never stack on a slow HA
   inFlight = true;
   try {
-    const ids = [c.solarEntity, c.socEntity, c.powerEntity, c.sunEntity];
+    const ids = [c.solarEntity, c.socEntity, c.powerEntity, c.sunEntity, c.moonEntity];
     if (c.gridEntity) ids.push(c.gridEntity);
     if (c.cutoffEntity) ids.push(c.cutoffEntity);
     if (c.cutinEntity) ids.push(c.cutinEntity);
@@ -272,6 +303,7 @@ export async function fetchOnce() {
     const cutoff = c.cutoffEntity ? parseNumeric(got[c.cutoffEntity]) : null;
     const cutIn = c.cutinEntity ? parseNumeric(got[c.cutinEntity]) : null;
     const source = c.gridEntity ? parseSource(got[c.gridEntity]) : null;
+    const moonPhase = c.moonEntity ? parseMoonPhase(got[c.moonEntity]) : null;
 
     if (c.gridEntity && got[c.gridEntity] && source === null) {
       warnOnce(`grid:${c.gridEntity}`, ` grid entity ${c.gridEntity} has no mappable mode value (state=${JSON.stringify(got[c.gridEntity].state)}) — source stays null, no guessing`);
@@ -317,6 +349,7 @@ export async function fetchOnce() {
       stale: false,
       lastUpdatedAt: Date.now(),
       lastError: null,
+      moonPhase,
     };
     // Optional recorder proxy: verbatim payload or absent. Never fails the round.
     try {
@@ -351,7 +384,7 @@ export function startPolling() {
     console.log(`${TAG}disabled (no HA_BASE_URL/HA_TOKEN) — /api/solar serves neutral`);
     return;
   }
-  console.log(`${TAG}polling ${c.pollMs}ms: ${c.solarEntity}, ${c.socEntity}, ${c.powerEntity} (+sun/thresholds)`);
+  console.log(`${TAG}polling ${c.pollMs}ms: ${c.solarEntity}, ${c.socEntity}, ${c.powerEntity} (+sun/moon/thresholds)`);
   fetchOnce().catch((err) => console.warn(`${TAG}first round failed — ${err?.message || err}`));
   timer = setInterval(() => {
     fetchOnce().catch((err) => console.warn(`${TAG}round failed — ${err?.message || err}`));
