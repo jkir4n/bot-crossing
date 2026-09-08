@@ -87,6 +87,30 @@ const SHADOW_EXTENT = 30
  */
 const SHADOW_SNAP = 2
 
+/**
+ * Moonlight phase factors (fork-only, Terra). Display-only: HA's moon-integration enum
+ * straight through to a brightness scale. Unknown/missing => 0, so a down HA sensor
+ * renders bit-identical to today. New moon keeps a whisper — the companion body is
+ * scenery either way.
+ */
+const MOON_PHASE_FACTOR = {
+  full_moon: 1.0,
+  waxing_gibbous: 0.8,
+  last_quarter: 0.8,
+  first_quarter: 0.6,
+  waning_gibbous: 0.6,
+  waxing_crescent: 0.35,
+  waning_crescent: 0.35,
+  new_moon: 0.05,
+}
+/** Cool tint for the moon fill. */
+const MOON_COLOR = 0xbfd0ff
+/**
+ * Full-moon ceiling. Deliberately below the night cool-fill level (0.34), so the
+ * brightest moonlit night is tonight's night plus a whisper — never a second day.
+ */
+const MOON_MAX = 0.3
+
 export class Sky {
   constructor(scene, settings, renderer) {
     this.scene = scene
@@ -217,6 +241,15 @@ export class Sky {
     this.fill = new THREE.DirectionalLight(0x8fa8d8, 0.2)
     this.fill.position.set(-40, 30, -30)
     this.group.add(this.fill)
+
+    // Moonlight (fork-only, Terra): the second directional light is added ONCE here and
+    // never removed — three.js recompiles every material when the light count changes,
+    // so runtime add/remove would stutter. Intensity 0 is invisible, which is also the
+    // guarantee: null phase or a non-HA clock reads exactly as today.
+    this.moon = new THREE.DirectionalLight(MOON_COLOR, 0)
+    this.moon.castShadow = false
+    this.group.add(this.moon, this.moon.target)
+    this._moonPhase = null
   }
 
   _buildStars() {
@@ -366,6 +399,7 @@ export class Sky {
     if (x === this.focus.x && z === this.focus.z) return
     this.focus.set(x, 0, z)
     this._placeSun()
+    this._placeMoon()
   }
 
   /** Sun position and target both hang off the focus point, so the frustum travels with it. */
@@ -373,6 +407,23 @@ export class Sky {
     this.sun.position.copy(this.sunDir).multiplyScalar(150).add(this.focus)
     this.sun.target.position.copy(this.focus)
     this.sun.target.updateMatrixWorld()
+  }
+
+  /**
+   * Latest HA moon phase, verbatim from SolarState.moonPhase via colony.setSolar.
+   * Stored raw; the factor lookup (unknown => 0) happens in setTime, so a stale or
+   * missing sensor can only ever dim this light back to invisible.
+   */
+  setMoonPhase(phase) {
+    this._moonPhase = typeof phase === 'string' ? phase : null
+  }
+
+  /** Moonlight falls from the companion's parking direction, so it plausibly comes FROM the moon. */
+  _placeMoon() {
+    if (!this.moon) return
+    this.moon.position.copy(this._companionOffset()).normalize().multiplyScalar(150).add(this.focus)
+    this.moon.target.position.copy(this.focus)
+    this.moon.target.updateMatrixWorld()
   }
 
   setTime(t) {
@@ -417,6 +468,16 @@ export class Sky {
     // holes in the image. On an airless world this stands in for regolith bounce.
     this.fill.intensity = THREE.MathUtils.lerp(0.34, 0.26, day)
 
+    // Moonlight (fork-only, Terra): purely additive night fill, driven in the same place
+    // the sun is lerped. The gate needs BOTH an HA clock and Terra — anything else pins
+    // intensity at exactly 0, i.e. today's render. Never touches windows, stars, fog,
+    // or the existing fills; the sun keeps shadow exclusivity (moon castShadow=false).
+    const moonFactor = this.settings.get('timeSource') === 'ha' && this.planet.id === 'terra'
+      ? (MOON_PHASE_FACTOR[this._moonPhase] ?? 0)
+      : 0
+    this.moon.intensity = (1 - day) * moonFactor * MOON_MAX
+    this._placeMoon()
+
     // Sky gradient.
     const top = this._c1.copy(this.nightTop).lerp(this.dayTop, day)
     const bottom = this._c2.copy(this.nightBottom).lerp(this.dayBottom, day)
@@ -433,8 +494,11 @@ export class Sky {
     this.stars.material.uniforms.uOpacity.value = Math.pow(1 - day, 1.6) * (1 - planet.atmosphere * 0.35)
     this.stars.visible = this.settings.get('stars') && this.stars.material.uniforms.uOpacity.value > 0.01
 
-    this.companionHalo.material.uniforms.uStrength.value = 0.35 + (1 - day) * 0.65
-    this.companionBody.material.emissiveIntensity = 0.25 + (1 - day) * 0.55
+    // Companion glow follows the phase on Terra nights — additive above tonight's
+    // baseline only (at/below the new-moon floor this is exactly today's look).
+    const moonAbove = Math.max(0, moonFactor - MOON_PHASE_FACTOR.new_moon)
+    this.companionHalo.material.uniforms.uStrength.value = 0.35 + (1 - day) * (0.65 + moonAbove * 0.3)
+    this.companionBody.material.emissiveIntensity = 0.25 + (1 - day) * (0.55 + moonAbove * 0.2)
 
     // Fog follows the horizon, or the whole world looks like it is behind glass at night.
     this.scene.fog.color.copy(bottom).lerp(this._c1.set(planet.fog.color), 0.55)

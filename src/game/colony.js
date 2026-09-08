@@ -280,7 +280,12 @@ export class Colony {
     this.astronauts.onSettingsChanged(changed)
     this.particles.onSettingsChanged(changed)
     if (changed.has('showLabels')) this._syncLabels()
-    if (changed.has('timeSource')) this._peekUntil = 0
+    if (changed.has('timeSource')) {
+      this._peekUntil = 0
+      // Re-resolve the moonlight gate immediately — with a static clock no per-frame
+      // setTime would otherwise leave the old gate's light level standing.
+      this.sky.setTime(this.sky.time)
+    }
     if (changed.has('timeOfDay')) {
       // In HA mode a drag (or L) is a 60s peek at that clock position, after which the
       // damped HA follow resumes. Anywhere else the slider owns the sky, as always.
@@ -296,6 +301,8 @@ export class Colony {
   setSolar(solar) {
     this.solar = solar && typeof solar === 'object' ? solar : null
     this.powerZone?.setSolar(this.solar)
+    // Moonlight rides the existing solar snapshot — no new poll, no new fetch.
+    this.sky.setMoonPhase(this.solar?.moonPhase ?? null)
     const fresh = isSolarFresh(this.solar)
     if (!fresh && !this._solarStaleLogged) {
       this._solarStaleLogged = true
