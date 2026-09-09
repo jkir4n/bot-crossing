@@ -143,7 +143,6 @@ function toThread(row, pilot) {
     sizeBytes: tokens > 0 ? tokens * 4 : (row.message_count || 0) * 500,
     source: row.source || '',
     canOpen: false,
-    canArchive: true,
     ref: { sessionId: row.id, pilot },
   }
 }
@@ -198,28 +197,6 @@ function newSession() {
   return { ok: false, error: 'Hermes sessions start in the terminal, not from the colony.' }
 }
 
-async function setArchived(ref, archived) {
-  const sessionId = ref && ref.sessionId
-  if (!sessionId) return { ok: false, error: 'Missing thread ref' }
-  const pilot = (ref && ref.pilot) || 'main'
-  const found = pilotDBs().find((d) => d.pilot === pilot)
-  if (!found) return { ok: false, error: 'No such pilot in the Hermes store' }
-  try {
-    const db = new DatabaseSync(found.file)
-    try {
-      const info = db.prepare('UPDATE sessions SET archived = ? WHERE id = ?')
-        .run(archived ? 1 : 0, sessionId)
-      return info.changes > 0
-        ? { ok: true }
-        : { ok: false, error: 'No such session in the Hermes store' }
-    } finally {
-      db.close()
-    }
-  } catch (err) {
-    return { ok: false, error: String((err && err.message) || err) }
-  }
-}
-
 export default {
   id: 'hermes',
   name: 'Hermes',
@@ -227,5 +204,4 @@ export default {
   scanThreads,
   openThread,
   newSession,
-  setArchived,
 }

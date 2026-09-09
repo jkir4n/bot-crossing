@@ -69,16 +69,25 @@
  * is_archived is deliberately NOT a discriminator: live chats sit on both
  * sides of it (a real session showed archived with no transcript loss).
  *
- * setArchived says so per the interface even though the index HAS an
- * is_archived flag: flipping it remotely would race the desktop app, which
- * rewrites its records from memory, so the colony keeps its own mark. There
- * is no verified deep link, so openThread/newSession say so too.
- * appStartedAt is omitted: with no outside write to stomp, there is no
- * memory-rewrite guard to drive.
+ * Read-only, per the harness contract: archiving is colony-internal
+ * (data/colony.json) and this adapter never writes. There is no per-thread
+ * deep link, so openThread says so; newSession offers the honest folder link
+ * (`cursor://file/<abs>`, answered by the installed app).
+ *
+ * Running/error come from the transcript TAIL for local reads: recent files
+ * carry `{ type: 'turn_ended', status }` markers — a closed turn is not
+ * running even when the file just changed, a failed close is an error, and a
+ * transcript from before markers existed is never read as mid-turn. Remote
+ * manifest pulls carry heads only, so remote threads keep the 5-minute
+ * recency heuristic.
+ *
+ * BOT_CROSSING_CURSOR_PROJECTS overrides the projects root outright (tests
+ * and non-standard installs); otherwise it is `<dataHome>/projects`.
  *
  * GAPS (labeled, not papered over): unread is always false (no focus signal
- * in either source); hasError is always false (would need transcript tails);
- * running is a 5-minute recency heuristic; model is always '' (not stored
+ * in either source); hasError for remote threads is always false (manifest
+ * pulls carry heads only); running for remote/unreadable transcripts is a
+ * 5-minute recency heuristic; model is always '' (not stored
  * per chat); lastFocusedAt is 0; project names for drive-rooted slugs are
  * approximate (the slug encoding loses separators — `d-Projects-Hudiy`
  * reads as `Hudiy`, with the drive letter and `Projects` root stripped);
@@ -92,7 +101,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { jsonLines, listDirs, num, readHead } from '../lib/fsutil.mjs'
+import { jsonLines, listDirs, num, readHead, readTail } from '../lib/fsutil.mjs'
 import {
   noteRemoteSeen,
   remoteHostLabel,
@@ -112,6 +121,17 @@ function dataHome() {
   const explicit = (process.env.CURSOR_DATA_DIR || '').trim()
   if (explicit) return explicit
   return path.join(os.homedir(), '.cursor')
+}
+
+/**
+ * The directory whose children are project slugs. BOT_CROSSING_CURSOR_PROJECTS
+ * names it outright (tests, non-standard installs); otherwise it is
+ * `<dataHome>/projects`.
+ */
+function projectsRoot(home) {
+  const explicit = (process.env.BOT_CROSSING_CURSOR_PROJECTS || '').trim()
+  if (explicit) return explicit
+  return path.join(home, 'projects')
 }
 
 /** Where the search index might live on this machine (never touched live). */
@@ -298,6 +318,47 @@ async function cachedTranscriptHead(file) {
   }
   if (headCache.size > 2000) headCache.clear()
   headCache.set(file, { key, parsed })
+  return parsed
+}
+
+/**
+ * Transcript TAIL facts for running/error, mtime-cached like heads. Recent
+ * Cursor writes close each turn with `{ type: 'turn_ended', status }`, so a
+ * closed turn is not running even when the file just changed, and a failed
+ * close is an error. Transcripts from before markers existed carry none at
+ * all — "no marker" reads as not-running, never as mid-turn. Null when the
+ * tail cannot be read (mid-write, vanished); callers fall back to the
+ * recency heuristic then.
+ */
+const TAIL_BYTES = 32 * 1024
+const tailCache = new Map()
+
+async function cachedTranscriptTail(file) {
+  let stat = null
+  try {
+    stat = await fsp.stat(file)
+    if (!stat.isFile() || stat.size === 0) return null
+  } catch {
+    return null
+  }
+  const key = `${file} ${stat.mtimeMs}:${stat.size}`
+  const hit = tailCache.get(file)
+  if (hit && hit.key === key) return hit.parsed
+  let parsed = null
+  try {
+    const tail = jsonLines(await readTail(file, TAIL_BYTES))
+    const ended = tail.filter((r) => r && r.type === 'turn_ended')
+    const last = tail[tail.length - 1]
+    parsed = {
+      modern: ended.length > 0,
+      closed: last ? last.type === 'turn_ended' : true,
+      errored: ended.length > 0 && ended[ended.length - 1].status !== 'success',
+    }
+  } catch {
+    parsed = null
+  }
+  if (tailCache.size > 2000) tailCache.clear()
+  tailCache.set(file, { key, parsed })
   return parsed
 }
 
@@ -504,7 +565,7 @@ async function readLocal(home) {
   const ensure = (uuid) => {
     let r = records.get(uuid)
     if (!r) {
-      r = { idx: null, tx: null, head: null }
+      r = { idx: null, tx: null, head: null, tail: null }
       records.set(uuid, r)
     }
     return r
@@ -521,8 +582,8 @@ async function readLocal(home) {
   if (searchSnap) {
     for (const [uuid, entry] of querySearchIndex(searchSnap)) ensure(uuid).idx = entry
   }
-  const projectsRoot = path.join(home, 'projects')
-  for (const slugDir of await listDirs(projectsRoot)) {
+  const projects = projectsRoot(home)
+  for (const slugDir of await listDirs(projects)) {
     const slug = path.basename(slugDir)
     const txRoot = path.join(slugDir, 'agent-transcripts')
     for (const uuidDir of await listDirs(txRoot)) {
@@ -544,6 +605,11 @@ async function readLocal(home) {
           rec.head = await cachedTranscriptHead(jl)
         } catch {
           rec.head = null
+        }
+        try {
+          rec.tail = await cachedTranscriptTail(jl)
+        } catch {
+          rec.tail = null
         }
       }
     }
@@ -573,7 +639,7 @@ async function readLocal(home) {
 
 async function storePresent(home) {
   try {
-    const stat = await fsp.stat(path.join(home, 'projects'))
+    const stat = await fsp.stat(projectsRoot(home))
     if (stat.isDirectory()) return true
   } catch {
     /* next candidate */
@@ -755,7 +821,7 @@ function manifestRecords(manifest) {
   const ensure = (uuid) => {
     let r = records.get(uuid)
     if (!r) {
-      r = { idx: null, tx: null, head: null }
+      r = { idx: null, tx: null, head: null, tail: null }
       records.set(uuid, r)
     }
     return r
@@ -1008,8 +1074,10 @@ function ensureRemoteSnapshot() {
 
 /* ---------------------------------------------------------- merge + scan */
 
-/** Updated within this window counts as working right now. */
+/** Updated within this window counts as working right now (fallback when no tail facts). */
 const RECENT_WINDOW_MS = 5 * 60 * 1000
+/** An open turn only reads as working while the file is this fresh — Cursor writes nothing when killed. */
+const ACTIVE_WINDOW_MS = 30 * 60 * 1000
 
 function toThread(uuid, rec, remote) {
   const idx = rec.idx || {}
@@ -1019,6 +1087,23 @@ function toThread(uuid, rec, remote) {
   const title = idx.title || head.preview || 'Untitled thread'
   const createdAt = num(head.createdAt) || num(idx.updatedAt) || num(tx.mtime)
   const lastActivityAt = Math.max(num(tx.mtime), num(idx.updatedAt), num(head.createdAt))
+  // Tail facts (local reads only) beat the recency heuristic: a closed turn
+  // is not running even when the file just changed, a failed close is an
+  // error, and a pre-marker transcript is never mid-turn. Remote pulls carry
+  // heads only, so remote threads keep the heuristic.
+  const tail = rec.tail || null
+  let running
+  let hasError
+  if (tail && tail.modern) {
+    running = !tail.closed && Date.now() - lastActivityAt < ACTIVE_WINDOW_MS
+    hasError = Boolean(tail.errored)
+  } else if (tail) {
+    running = false
+    hasError = false
+  } else {
+    running = Date.now() - lastActivityAt < RECENT_WINDOW_MS
+    hasError = false
+  }
   return {
     id: `cursor:${uuid}`,
     title,
@@ -1033,14 +1118,13 @@ function toThread(uuid, rec, remote) {
     createdAt,
     lastActivityAt,
     lastFocusedAt: 0,
-    running: Date.now() - lastActivityAt < RECENT_WINDOW_MS,
+    running,
     unread: false,
-    hasError: false,
+    hasError,
     archived: Boolean(idx.archived),
     sizeBytes: num(tx.size) || 500,
     source: tx.size ? (remote ? 'transcript-remote' : 'transcript') : 'index-only',
     canOpen: false,
-    canArchive: false,
     ref: { conversationId: uuid, via: remote ? 'snapshot' : 'local' },
   }
 }
@@ -1075,7 +1159,7 @@ async function scanThreads() {
   }
   if (!byId.size) {
     if (!remoteConfig() && !(await storePresent(home))) {
-      throw new Error('No Cursor store found (set CURSOR_SSH_TARGET or CURSOR_DATA_DIR)')
+      throw new Error('No Cursor store found (set CURSOR_SSH_TARGET, CURSOR_DATA_DIR or BOT_CROSSING_CURSOR_PROJECTS)')
     }
     throw new Error('No Cursor store readable right now')
   }
@@ -1094,12 +1178,11 @@ function openThread() {
   return { ok: false, error: 'Cursor threads open in the desktop app — no link scheme verified yet.' }
 }
 
-function newSession() {
-  return { ok: false, error: 'Cursor sessions start in the desktop app, not from the colony.' }
-}
-
-async function setArchived() {
-  return { ok: false, error: 'Cursor archiving stays in the desktop app — the colony keeps its own archive mark.' }
+/** `cursor://file/<abs>` is answered by the installed app; the OS opener does the finding. */
+function newSession(dir) {
+  const abs = String(dir || '').replace(/\\/g, '/')
+  if (!abs.startsWith('/')) return { ok: false, error: 'That folder is not somewhere Cursor can open' }
+  return { ok: true, url: `cursor://file${abs.split('/').map(encodeURIComponent).join('/')}` }
 }
 
 export default {
@@ -1109,5 +1192,4 @@ export default {
   scanThreads,
   openThread,
   newSession,
-  setArchived,
 }

@@ -682,7 +682,6 @@ function serveThread(s, projects, statuses) {
     sizeBytes: 500,
     source: 'serve',
     canOpen: Boolean(shareUrl),
-    canArchive: false,
     ref: { sessionId: id, via: 'serve', shareUrl },
   }
 }
@@ -908,9 +907,6 @@ function toThread(row, preview, via) {
     sizeBytes: tokens > 0 ? tokens * 4 : 500,
     source: remote ? 'db-remote' : 'db',
     canOpen: Boolean(shareUrl),
-    // Remote pulls are read-only by policy (writing a store file Desktop
-    // holds open races its in-memory records); local stores flip the flag.
-    canArchive: !remote,
     ref: { sessionId: str(row.id), via, shareUrl },
   }
 }
@@ -1086,51 +1082,6 @@ function newSession() {
   return { ok: false, error: 'OpenCode sessions start in the Desktop app or terminal, not from the colony.' }
 }
 
-const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/
-
-async function setArchived(ref, archived) {
-  const sessionId = ref && ref.sessionId
-  if (typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) {
-    return { ok: false, error: 'Missing thread ref' }
-  }
-  if (!ref || ref.via !== 'db') {
-    return { ok: false, error: 'Serve-listed OpenCode sessions are view-only — archive in the Desktop app.' }
-  }
-  const source = resolveSourceDB()
-  if (!source) return { ok: false, error: 'No OpenCode session store found' }
-  // The colony never writes a snapshot copy (that would flip a flag in a
-  // file nothing reads) and never writes a remote pull (Desktop's).
-  if (isSnapshotCopy(source)) {
-    return { ok: false, error: 'The OpenCode store is read-only here — archive in the Desktop app.' }
-  }
-  try {
-    fs.accessSync(source, fs.constants.W_OK)
-  } catch {
-    return { ok: false, error: 'The OpenCode store is read-only here — archive in the Desktop app.' }
-  }
-  let db
-  try {
-    db = new DatabaseSync(source)
-  } catch (err) {
-    return { ok: false, error: String((err && err.message) || err) }
-  }
-  try {
-    // Re-read first: only flip the flag on the session we think it is.
-    const row = db.prepare('SELECT id FROM session WHERE id = ?').get(sessionId)
-    if (!row || row.id !== sessionId) return { ok: false, error: 'No such session in the OpenCode store' }
-    const stamp = archived ? Date.now() : null
-    const info = db.prepare('UPDATE session SET time_archived = ? WHERE id = ?').run(stamp, sessionId)
-    if (info.changes === 0) return { ok: false, error: 'No such session in the OpenCode store' }
-    // The snapshot now lies — force a re-copy on the next scan.
-    snapshotCache = { key: '', source: '', snap: '' }
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: String((err && err.message) || err) }
-  } finally {
-    db.close()
-  }
-}
-
 export default {
   id: 'opencode',
   name: 'OpenCode',
@@ -1138,5 +1089,4 @@ export default {
   scanThreads,
   openThread,
   newSession,
-  setArchived,
 }

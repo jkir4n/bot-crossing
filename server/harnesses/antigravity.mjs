@@ -42,10 +42,8 @@
  *      ANTIGRAVITY_SNAPSHOT_DIR, else the user cache dir, else the tmpdir.
  *
  * The app keeps no archive concept anywhere (no flag, no trash dir), so
- * setArchived says so per the interface and the colony keeps its own mark.
+ * archiving is colony-internal (data/colony.json) and adapters stay read-only.
  * There is no verified deep link, so openThread/newSession say so too.
- * appStartedAt is omitted: with no outside write to stomp, there is no
- * memory-rewrite guard to drive.
  *
  * Annotation-only uuids (no db, no brain transcript) are deleted-conversation
  * leftovers — the app leaves orphan .pbtxt files behind on delete — and are
@@ -1006,7 +1004,6 @@ function toThread(uuid, rec, remote) {
     sizeBytes: num(rec.dbSize) || 500,
     source: rec.dbSize ? (remote ? 'db-remote' : 'db') : 'annotation-only',
     canOpen: false,
-    canArchive: false,
     ref: { conversationId: uuid, via: remote ? 'snapshot' : 'local' },
   }
 }
@@ -1063,10 +1060,6 @@ function newSession() {
   return { ok: false, error: 'Antigravity sessions start in the desktop app, not from the colony.' }
 }
 
-async function setArchived() {
-  return { ok: false, error: 'Antigravity has no archive concept — the colony keeps its own archive mark.' }
-}
-
 export default {
   id: 'antigravity',
   name: 'Antigravity',
@@ -1074,5 +1067,4 @@ export default {
   scanThreads,
   openThread,
   newSession,
-  setArchived,
 }

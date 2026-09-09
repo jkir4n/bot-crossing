@@ -1,5 +1,44 @@
 # Changelog — Bot Crossing Colony
 
+## 2026-09-09 — Upstream sync a497242 (Codex + Cursor, read-only colony)
+
+Merged `upstream/main` @ `a497242` (PR #21: "Codex and Cursor support, Windows and
+Linux fixes, and a read-only colony", +2606/-347, 27 files) into `main`.
+Six files conflicted; all resolved per the card's conflict map. `npm test` 33/33,
+`npm run build` clean, live ghost audit 254 threads = pre-merge baseline exactly.
+
+- Adopted verbatim/new: `server/harnesses/codex.mjs` (+ registry line),
+  `server/lib/fsutil.mjs` + `server/lib/xdg.mjs`, `src/world/sky.js`
+  `clockTime`/`systemTimeOfDay` (coexists with our `moonFactor` — untouched),
+  `data/colony.json` as sole write target + per-write temp files + 409
+  merge-on-save (`src/game/merge-state.js`, `fetchState`/`saveState` with base),
+  mid-turn detection via transcript tail, `claude-code:`-prefixed ids + v1→v2
+  migration, dormant-repo fold-away, hidden-projects, `BOT_CROSSING_HOST`,
+  `npm test` (`test/harness.test.mjs` + `test/state.test.mjs`).
+- Read-only colony: upstream removed `POST /api/archive` + the harness
+  write-back. Adopted the removal — `hermes.mjs`, `opencode.mjs`,
+  `antigravity.mjs`, `cursor.mjs` migrated to the new contract (no
+  `setArchived`/`canArchive`/`appStartedAt`; archiving lives in
+  `data/colony.json` only). Frontend archive/viewed flow is upstream's
+  colony-internal one; our `/api/solar` + `fetchSolar` kept alongside.
+- Reconciled (both kept): `cursor.mjs` — ours stays the base (local
+  JSONL + search-index union + remote-SSH manifest); ported upstream's
+  `turn_ended` tail semantics for local running/error, the `cursor://file`
+  `newSession` folder link, and `BOT_CROSSING_CURSOR_PROJECTS` root override.
+  `hud.js` lighting — our Time-source select + HA follow + Panel-glint kept,
+  upstream Live/`clockTime` chips folded into the same preset row (explicit
+  source pick clears `clockTime` so it can't fight HA damping or the cycle).
+  `setLegend` carries our `seen` stamp plus hidden/folded. README +
+  `server/harnesses/README.md` merged (Codex rows, read-only wording,
+  `npm test` checklist).
+- Ghost audit (live scan, prod-env parity): hermes 238, antigravity 8,
+  opencode 5, cursor 3 — identical to pre-merge; codex 0 = empty local store.
+- Hygiene: no machine names, IPs, SSH users or drive paths in merged code
+  (connection values stay env-only); `codex.mjs` local-store only.
+- Deviation: browser smoke limited to HTTP (`/` 200, APIs live) — no headless
+  browser on the host to assert zero console errors or the moonlight render;
+  needs the usual phone/PC eyeball on the deployed build.
+
 ## 2026-09-07 — Power zone: the colony's dedicated power tile (HA-truth visuals)
 
 The "solar tile" became a real place: a fenced power plot on a reserved colony cell, built
