@@ -13,11 +13,17 @@
       recorder history passthrough. Operator env only (server/ha-solar.conf.example);
       HA holds ALL house logic — colony fetches and renders, never derives.
 
-## Upstream facts (verified Sep 2026, static review only — never cloned)
+## Upstream facts (updated 17 Sep 2026 — after the fefaf7b sync)
 
-- `jarrenrocks/bot-crossing`, MIT, 4 commits (latest 01 Sep 2026), 57★/16 forks.
-  macOS-only (`spawn('open', [url])` in `server/api.mjs`), Claude-Code-only
-  adapter; 9 more harnesses listed as "not yet" incl. OpenCode/Codex/Antigravity.
+- `jarrenrocks/bot-crossing`, MIT. Quiet at fork time; **very active by mid-Sep**
+  (35 upstream commits merged into the fork 17 Sep: #53 worlds/water/wildlife/ambient
+  audio/phone, #21 Codex+Cursor). Many open community PRs overlap fork-only work
+  (OpenCode #26, Antigravity #44/#28, phone #38, shared colonies #25) — sync on
+  demand, keep ours per the 17 Sep merge resolutions. Originally macOS-only +
+  Claude-only; our Linux port (PR #2, merged) + adapters stay fork-side.
+- **Syncs:** 09 Sep (a497242 baseline), 17 Sep (fefaf7b — resolutions in the sync
+  commit: cursor keeps fork scan + open-refusal; settings/plots/colony/main/buildings
+  merged both ways; 72/72 tests).
 - Adapter contract (`server/harnesses/README.md`): **one new file + one line in
   `index.mjs`**; `detect / scanThreads / openThread / newSession / setArchived /
   appStartedAt?`. Read-only except one archive flag; never block the scan
@@ -74,9 +80,8 @@
       orphans) — live.
 - [x] Cursor adapter (transcript + search-index union over one snapshot pull; prunes index stubs,
       contentless stubs, cross-slug copies, stale transcript-only rows; 16 union rows → 3 real) — live.
-- [ ] Codex adapter — skip building our own; both upstream PRs (#5 aschenoni, #12 DiamondGeezer)
-      are open. Wait for the author to merge one, then sync it into the fork (daily 10am watcher
-      notifies). Only build our own if both sit unmerged for weeks and we need it.
+- [x] Codex adapter — upstream shipped their own (#21, in the fork since the 9 Sep sync);
+      courtesy PRs #5/#12 were closed unmerged. Nothing to build.
 - [x] Remote-reader phase 1 (06 Sep 2026): optional host/lastSeenAt/remote on
       remote threads (`remote-stat.mjs` helper, PR #7-safe) + panel
       live/asleep/unreachable states + last-seen chip (`9fec9d3`, `23a563f`).
@@ -117,7 +122,7 @@
 ### Upstream PRs (courtesy, never gating)
 - [x] Linux `launch()` → upstream (PR #2 merged 05 Sep 2026). [ ] OpenCode adapter → upstream.
 - [x] Hermes adapter → upstream (PR #7 open, 04 Sep 2026).
-- [ ] Codex adapter → upstream. (Keep remote-colony + solar in fork only.)
+- [x] Codex adapter → upstream — not needed; upstream shipped their own (#21). (Keep remote-colony + solar in fork only.)
 
 ## Harnesses / agents in scope (refer to these)
 
