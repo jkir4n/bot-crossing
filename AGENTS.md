@@ -23,7 +23,9 @@
   Claude-only; our Linux port (PR #2, merged) + adapters stay fork-side.
 - **Syncs:** 09 Sep (a497242 baseline), 17 Sep (fefaf7b — resolutions in the sync
   commit: cursor keeps fork scan + open-refusal; settings/plots/colony/main/buildings
-  merged both ways; 72/72 tests).
+  merged both ways; 72/72 tests). Hotfix same day: pilot-fold roster entries
+  settle at their winning thread's site (upstream's new site loop assumed a
+  building per roster member) — expect this class in future upstream merges.
 - Adapter contract (`server/harnesses/README.md`): **one new file + one line in
   `index.mjs`**; `detect / scanThreads / openThread / newSession / setArchived /
   appStartedAt?`. Read-only except one archive flag; never block the scan

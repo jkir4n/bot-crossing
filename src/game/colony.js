@@ -616,7 +616,7 @@ export class Colony {
         (score === prev.score &&
           (entry.thread.lastActivityAt || 0) > (prev.entry.thread.lastActivityAt || 0))
       ) {
-        pilots.set(key, { score, entry: { ...entry, id: key } })
+        pilots.set(key, { score, entry: { ...entry, id: key, winnerId: entry.id } })
       }
     }
     const seenBuildings = new Set()
@@ -689,7 +689,11 @@ export class Colony {
     this.activePlots = active
     this._rebuildNavigation()
     for (const member of roster) {
-      const entry = this.buildings.get(member.id)
+      // Fork: pilot-fold entries carry no building of their own — their `id` is the pilot
+      // key, and buildings exist per thread. `winnerId` keeps the winning thread so the
+      // pilot stands at it, exactly as the pre-merge fold did via the spread.
+      const entry = this.buildings.get(member.winnerId || member.id)
+      if (!entry) continue
       member.site = this._workSite(this.plots.get(entry.plot), entry, entry.slot)
     }
     this._syncFaunaSites()
