@@ -1174,8 +1174,15 @@ async function scanThreads() {
 
 /* ---------------------------------------------------------------- actions */
 
+/**
+ * Cursor registers `cursor://`, but only for files and folders — nothing found so far addresses
+ * a single agent thread, and inventing a route would be a link that silently does nothing.
+ * Upstream's answer (open the repo in Cursor, one click from the thread) needs the opener on
+ * the machine Cursor actually runs on — the second machine, not this server — so the refusal
+ * stands until the remote-open listener lands; revisit this choice then.
+ */
 function openThread() {
-  return { ok: false, error: 'Cursor threads open in the desktop app — no link scheme verified yet.' }
+  return { ok: false, error: 'Cursor threads open on their own machine — open the repo there and pick it from the agent list.' }
 }
 
 /** `cursor://file/<abs>` is answered by the installed app; the OS opener does the finding. */
