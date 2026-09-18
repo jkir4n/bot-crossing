@@ -39,6 +39,14 @@ export const buildingUniforms = {
   // manual/internal frame renders exactly as before. Town night lighting
   // stays full bright on every source — no source-based dimming anywhere.
   uGlint: { value: 0 },
+  /**
+   * A planet's colour on the hull. The neutral structural swatches lean toward this when
+   * the amount is up — desert clay turns the same kit into adobe — and because it is
+   * shared, switching planet re-themes every standing building with two writes and no
+   * rebuild. Amount 0 is a true no-op, so the other worlds cost nothing.
+   */
+  uPlanetTint: { value: new THREE.Color(1, 1, 1) },
+  uPlanetTintAmount: { value: 0 },
 }
 
 /**
@@ -91,6 +99,13 @@ for (const [cell, [r, m]] of Object.entries(SURFACE)) {
 const ACCENT_MASK = cellMask([CELL.TRIM])
 /** Photovoltaic glass: the solar-array field plus the workshop roof panels. */
 const SOLAR_MASK = cellMask([CELL.SOLAR_A, CELL.SOLAR_B])
+
+/**
+ * The swatches the planet tint is allowed to touch: the neutral hull and frame greys.
+ * Everything with a colour of its own — trim, solar glass, the red — keeps it, or the
+ * repaint flattens a building into a single-tone lump.
+ */
+const PLANET_TINT_MASK = cellMask([CELL.WHITE, CELL.GREY, CELL.SLATE])
 
 // ── composition ───────────────────────────────────────────────────────────────────────
 
@@ -341,8 +356,11 @@ export function decorate(material, uniforms) {
          uniform vec3 uAccent;
          uniform float uNight;
          uniform float uGlint;
+         uniform vec3 uPlanetTint;
+         uniform float uPlanetTintAmount;
          uniform float uCellAccent[ ${CELL_COUNT} ];
          uniform float uCellSolar[ ${CELL_COUNT} ];
+         uniform float uCellPlanetTint[ ${CELL_COUNT} ];
          uniform float uCellRoughness[ ${CELL_COUNT} ];
          uniform float uCellMetalness[ ${CELL_COUNT} ];
 
@@ -369,6 +387,13 @@ export function decorate(material, uniforms) {
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+         // The planet's own colour on the neutral hull swatches, before the accent gets
+         // its say — same luminance trick, so panels keep their shading as they change.
+         float tintAmount = uCellPlanetTint[ cell ] * uPlanetTintAmount;
+         if ( tintAmount > 0.0 ) {
+           float tintLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+           diffuseColor.rgb = mix( diffuseColor.rgb, uPlanetTint * clamp( tintLum * 1.9, 0.3, 1.5 ), tintAmount );
+         }
          float accentAmount = uCellAccent[ cell ];
          if ( accentAmount > 0.0 ) {
            float lum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
@@ -523,8 +548,11 @@ export function createBuilding({ seed = 1, accent = 0xc96442, kind = null } = {}
     uNight: buildingUniforms.uNight,
     uTime: buildingUniforms.uTime,
     uGlint: buildingUniforms.uGlint,
+    uPlanetTint: buildingUniforms.uPlanetTint,
+    uPlanetTintAmount: buildingUniforms.uPlanetTintAmount,
     uCellAccent: { value: ACCENT_MASK },
     uCellSolar: { value: SOLAR_MASK },
+    uCellPlanetTint: { value: PLANET_TINT_MASK },
     uCellRoughness: { value: ROUGHNESS },
     uCellMetalness: { value: METALNESS },
   }

@@ -1,5 +1,5 @@
 /**
- * Hermes Agent adapter (fork addition).
+ * Harness adapter: Hermes Agent — the terminal and chat apps' session store.
  *
  * Reads the agent's own session store — the `sessions` table in
  * `~/.hermes/state.db`, opened read-only — plus a first-user-message preview
