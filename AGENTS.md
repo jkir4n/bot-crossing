@@ -22,20 +22,27 @@
   (OpenCode #26, Antigravity #44/#28, phone #38, shared colonies #25) — sync on
   demand, keep ours per the 17 Sep merge resolutions. Originally macOS-only +
   Claude-only; our Linux port (PR #2, merged) + adapters stay fork-side.
-- **18 Sep:** upstream main advanced to `1495863` (includes #56 'PR round: 12 taken' —
-  it adapted our PR #7's core into an upstream `hermes.mjs`; `HERMES_PROJECT_ALIASES`
-  stays fork-only; also kilo harness, upstream test suite, a 'bot' terminology pass).
-  Not yet synced into the fork — next sync when wanted.
-- **Syncs:** 09 Sep (a497242 baseline), 17 Sep (fefaf7b — resolutions in the sync
-  commit: cursor keeps fork scan + open-refusal; settings/plots/colony/main/buildings
-  merged both ways; 72/72 tests). Hotfix same day: pilot-fold roster entries
-  settle at their winning thread's site (upstream's new site loop assumed a
-  building per roster member) — expect this class in future upstream merges.
+- **19 Sep: synced through `d05ac2f`** (sync commit `5488d00`, branch
+  `sync-20260919` kept as marker): the #56 PR round — upstream `hermes.mjs`
+  adapted from our PR #7 (aliases stay fork-only); kilo harness; upstream test
+  suite; 'bot' terminology pass; zone drag + `plot-move.mjs` refactor (POWER_CELL
+  grafted into the new spiral); terminal/Windows open-door (`openInTerminal` now
+  from `terminal.mjs`); sharp 0.35.4. Resolutions kept the fork's remote-capable
+  opencode/antigravity adapters, solar glint + planet-tint uniforms side by side,
+  and fork README voice. Suite: 127 pass / 0 fail / 9 fork-skipped (upstream's
+  local opencode/antigravity contracts — see the fork note in `test/harness.test.mjs`).
+- **Syncs:** 09 Sep (a497242 baseline), 17 Sep (fefaf7b), 19 Sep (d05ac2f →
+  5488d00, deployed live the same night). 17 Sep resolutions: cursor keeps fork
+  scan + open-refusal; settings/plots/colony/main/buildings merged both ways.
+  Hotfix (17 Sep): pilot-fold roster entries settle at their winning thread's
+  site (upstream's new site loop assumed a building per roster member) — expect
+  this class in future upstream merges.
 - Adapter contract (`server/harnesses/README.md`): **one new file + one line in
   `index.mjs`**; `detect / scanThreads / openThread / newSession / setArchived /
   appStartedAt?`. Read-only except one archive flag; never block the scan
   (mtime-cache); read heads not whole files; expect malformed data; never widen
-  `id` collisions. No test suite upstream — verify per their 5-step checklist.
+  `id` collisions. Upstream now ships a test suite (`npm test`); the fork skips
+  the 9 upstream-local opencode/antigravity contract tests (remote adapters differ).
 - Claude link uses `claude://claude.ai/epitaxy/<local_…>` (navigate),
   `claude://resume?session=` (CLI fallback, imports transcript — destructive),
   `claude://code/new?folder=` (new session). Engineered details worth keeping:
@@ -141,7 +148,7 @@
 | Hermes Agent | Linux host | Local adapter, session mapping | `hermes-agent` skill / dashboard |
 | Antigravity | second machine | Snapshot-primary store pull + ghost pruning | repo `server/harnesses/README.md` |
 | Cursor | second machine | Transcripts + search index via snapshot pull | repo `server/harnesses/README.md` §Cursor |
-| Upstream project | — | `jarrenrocks/bot-crossing` (MIT, as-is) | https://github.com/jarrenrocks/bot-crossing |
+| Upstream project | — | `Station-Sciences/bot-crossing` (MIT, as-is) | https://github.com/Station-Sciences/bot-crossing |
 
 Future build sessions for this project may run from **any** harness (Hermes,
 OpenCode, Codex) — this file is the shared contract; keep it current.
