@@ -13,14 +13,19 @@
       recorder history passthrough. Operator env only (server/ha-solar.conf.example);
       HA holds ALL house logic — colony fetches and renders, never derives.
 
-## Upstream facts (updated 17 Sep 2026 — after the fefaf7b sync)
+## Upstream facts (updated 18 Sep 2026)
 
-- `jarrenrocks/bot-crossing`, MIT. Quiet at fork time; **very active by mid-Sep**
+- `Station-Sciences/bot-crossing` (org move from `jarrenrocks` — old URLs redirect;
+  upstream remote URL updated 18 Sep), MIT. Quiet at fork time; **very active by mid-Sep**
   (35 upstream commits merged into the fork 17 Sep: #53 worlds/water/wildlife/ambient
   audio/phone, #21 Codex+Cursor). Many open community PRs overlap fork-only work
   (OpenCode #26, Antigravity #44/#28, phone #38, shared colonies #25) — sync on
   demand, keep ours per the 17 Sep merge resolutions. Originally macOS-only +
   Claude-only; our Linux port (PR #2, merged) + adapters stay fork-side.
+- **18 Sep:** upstream main advanced to `1495863` (includes #56 'PR round: 12 taken' —
+  it adapted our PR #7's core into an upstream `hermes.mjs`; `HERMES_PROJECT_ALIASES`
+  stays fork-only; also kilo harness, upstream test suite, a 'bot' terminology pass).
+  Not yet synced into the fork — next sync when wanted.
 - **Syncs:** 09 Sep (a497242 baseline), 17 Sep (fefaf7b — resolutions in the sync
   commit: cursor keeps fork scan + open-refusal; settings/plots/colony/main/buildings
   merged both ways; 72/72 tests). Hotfix same day: pilot-fold roster entries
@@ -122,8 +127,9 @@
       fork-only). Other harnesses stay per-session by user decision — no folding.
 
 ### Upstream PRs (courtesy, never gating)
-- [x] Linux `launch()` → upstream (PR #2 merged 05 Sep 2026). [ ] OpenCode adapter → upstream.
-- [x] Hermes adapter → upstream (PR #7 open, 04 Sep 2026).
+- [x] Linux `launch()` → upstream (PR #2 merged 05 Sep 2026).
+- [x] OpenCode adapter → upstream — not needed; upstream ships its own `opencode.mjs` (community round, #56 era).
+- [x] Hermes adapter → upstream — PR #7 CLOSED 18 Sep 2026: maintainer adapted its core into #56 (upstream ships `hermes.mjs`); aliases feature stays fork-only. No further action.
 - [x] Codex adapter → upstream — not needed; upstream shipped their own (#21). (Keep remote-colony + solar in fork only.)
 
 ## Harnesses / agents in scope (refer to these)
