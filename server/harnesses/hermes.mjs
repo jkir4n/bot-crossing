@@ -104,8 +104,18 @@ function applyProjectAlias(project, env = process.env) {
   return alias ? alias[1] : project
 }
 
+/**
+ * Card worktrees live at <repo>/.worktrees/<id> — a thread running there
+ * belongs to <repo>, not to a plot named after the card id. Collapse the
+ * worktree segment (and anything deeper under it) back to the parent repo.
+ * Pure so it can be unit-tested without a session store.
+ */
+export function projectRoot(root) {
+  return root.replace(/[/\\]\.worktrees([/\\].*)?$/, '')
+}
+
 function toThread(row, pilot) {
-  const root = row.git_repo_root || row.cwd || ''
+  const root = projectRoot(row.git_repo_root || row.cwd || '')
   // Sessions run from the agent home (or with no cwd) are all the same
   // project — don't let basename case/dirname split one bot into many.
   const home = HOME
