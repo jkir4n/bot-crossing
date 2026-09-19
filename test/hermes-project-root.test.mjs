@@ -29,3 +29,24 @@ test('windows-style separators collapse as well', () => {
 test('a `.worktrees`-prefixed sibling directory is not a worktree', () => {
   assert.equal(projectRoot('/plain/.worktrees-x/t_abc'), '/plain/.worktrees-x/t_abc')
 })
+
+test('a scratch workspace collapses to the agent home bucket', () => {
+  assert.equal(
+    projectRoot('/home/hermes/.hermes/kanban/workspaces/t_18210d94'),
+    '/home/hermes/.hermes'
+  )
+})
+
+test('deeper paths under a scratch workspace collapse too', () => {
+  assert.equal(
+    projectRoot('/home/hermes/.hermes/kanban/workspaces/t_x/deeper'),
+    '/home/hermes/.hermes'
+  )
+})
+
+test('a `workspaces`-prefixed sibling directory is not a scratch workspace', () => {
+  assert.equal(
+    projectRoot('/plain/kanban/workspaces-x/t_abc'),
+    '/plain/kanban/workspaces-x/t_abc'
+  )
+})

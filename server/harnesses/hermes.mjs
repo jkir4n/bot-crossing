@@ -108,10 +108,17 @@ function applyProjectAlias(project, env = process.env) {
  * Card worktrees live at <repo>/.worktrees/<id> — a thread running there
  * belongs to <repo>, not to a plot named after the card id. Collapse the
  * worktree segment (and anything deeper under it) back to the parent repo.
+ * Scratch workspaces live at <home>/kanban/workspaces/<id> — they carry no
+ * project information (every card's scratch dir basename is just the card
+ * id), so their threads belong in the Hermes home bucket rather than a
+ * plot named after the card id. Collapse that segment back to its prefix
+ * before /kanban/workspaces.
  * Pure so it can be unit-tested without a session store.
  */
 export function projectRoot(root) {
-  return root.replace(/[/\\]\.worktrees([/\\].*)?$/, '')
+  return root
+    .replace(/[/\\]\.worktrees([/\\].*)?$/, '')
+    .replace(/[/\\]kanban[/\\]workspaces([/\\].*)?$/, '')
 }
 
 function toThread(row, pilot) {
