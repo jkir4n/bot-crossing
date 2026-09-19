@@ -780,13 +780,10 @@ body {
   color: #b6b5be;
 }
 
-/* Solar (fork-only): HA mode greys the manual clock without hiding it. */
+/* Solar (fork-only): HA mode greys the manual clock without hiding it. The chips row keeps
+   only the grey visual — no pointer-events block, so tapping any chip leaves HA mode. */
 .chips.disabled {
   opacity: 0.45;
-}
-
-.chips.disabled .chip {
-  pointer-events: none;
 }
 
 .settings .row.disabled {

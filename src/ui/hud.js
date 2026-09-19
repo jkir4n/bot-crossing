@@ -208,36 +208,25 @@ export class Hud {
 
     // Lighting.
     const light = group('Lighting')
-    // Solar (fork-only): which clock drives the sky. Manual and Internal cycle are exactly
-    // the old slider/autoTime pair; Home Assistant follows the live energy state.
-    const timeSrc = this._select(
-      'Time source',
-      'timeSource',
-      [
-        ['manual', 'Manual'],
-        ['internal', 'Internal cycle'],
-        ['ha', 'Home Assistant'],
-      ],
-      'Which clock drives the sky. Home Assistant follows the live energy state.'
-    )
-    timeSrc.querySelector('select').addEventListener('change', () => {
-      const src = s.get('timeSource')
-      // An explicit clock choice beats following the machine's clock — otherwise `clockTime`
-      // would keep winning over the internal cycle, and fight the HA damping in HA mode.
-      s.set('clockTime', false)
-      // The old autoTime flag still runs the internal cycle; the picker just owns it now.
-      if (src === 'internal') s.set('autoTime', true)
-      else s.set('autoTime', false)
-      if (src === 'ha') this.hint('Following Home Assistant — drag the slider for a 60s peek')
-    })
+    // Solar (fork-only): the chips row owns the clock modes. Manual picks and Live are
+    // exactly the old slider/clockTime pair; Home Assistant follows the live energy state
+    // (greyed but tappable — tapping any chip leaves HA mode).
     const presetChips = chips(
       // `Live` is a time of day like the others from where you are standing, so it belongs
-      // in the same row rather than in a toggle further down.
-      [...TIMES.map((t) => ({ id: t.id, label: t.label })), { id: 'live', label: 'Live' }],
-      () => (this.settings.get('clockTime') ? 'live' : nearestTime(this.settings.get('timeOfDay'))),
+      // in the same row rather than in a toggle further down. `Home Assistant` is the old
+      // Time-source picker's `ha` mode, as a pill next to Live.
+      [...TIMES.map((t) => ({ id: t.id, label: t.label })), { id: 'live', label: 'Live' }, { id: 'ha', label: 'Home Assistant' }],
+      () => (s.get('timeSource') === 'ha' ? 'ha' : this.settings.get('clockTime') ? 'live' : nearestTime(this.settings.get('timeOfDay'))),
       (id) => {
-        // Greyed in HA mode: the highlight is a live readout there, not a control.
-        if (s.get('timeSource') === 'ha') return
+        // The chips stay tappable in HA mode: any tap leaves it.
+        if (id === 'ha') {
+          this.settings.set('timeSource', 'ha')
+          this.settings.set('clockTime', false)
+          this.settings.set('autoTime', false)
+          this.hint('Following Home Assistant — drag the slider for a 60s peek')
+          return
+        }
+        this.settings.set('timeSource', 'manual')
         this.settings.set('autoTime', false)
         this.settings.set('clockTime', id === 'live')
         if (id === 'live') this.settings.set('timeOfDay', systemTimeOfDay())
@@ -255,10 +244,17 @@ export class Hud {
       'autoTime',
       'Runs the clock forward on its own. Ignored while the sky is following this machine’s clock.'
     )
+    // Solar (fork-only): the old Time-source picker owned the manual/internal mapping, so
+    // the cycle toggle maps its own flip — on takes `internal`, off falls back to `manual`
+    // only from `internal` (never touching `ha`). Runs after the toggle's own flip above.
+    cycleRow.querySelector('button').addEventListener('click', () => {
+      if (s.get('autoTime')) s.set('timeSource', 'internal')
+      else if (s.get('timeSource') === 'internal') s.set('timeSource', 'manual')
+    })
     const lenRow = this._slider('Cycle length', 'dayLength', 30, 900, 30, (v) => `${Math.round(v / 60)}m`)
-    light.append(timeSrc, presetChips, timeRow, cycleRow, lenRow)
-    // In HA mode the manual clock controls grey out but stay visible; the preset
-    // highlight keeps tracking as a readout of where HA currently holds the clock.
+    light.append(presetChips, timeRow, cycleRow, lenRow)
+    // In HA mode the manual clock controls grey out but stay visible; the chips row keeps
+    // only the grey visual (taps still land — any chip leaves HA mode).
     this.controls.push({
       el: light,
       sync: () => {
