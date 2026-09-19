@@ -13,7 +13,7 @@
       recorder history passthrough. Operator env only (server/ha-solar.conf.example);
       HA holds ALL house logic — colony fetches and renders, never derives.
 
-## Upstream facts (updated 18 Sep 2026)
+## Upstream facts (updated 19 Sep 2026)
 
 - `Station-Sciences/bot-crossing` (org move from `jarrenrocks` — old URLs redirect;
   upstream remote URL updated 18 Sep), MIT. Quiet at fork time; **very active by mid-Sep**
