@@ -388,6 +388,15 @@ function verifySnapshot(file) {
       db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name))
     if (!tables.has('session')) return { ok: false, error: 'no session table' }
     const row = db.prepare('SELECT COUNT(*) AS n FROM session').get()
+    // Dry-run the exact session query the scan would execute: a staged
+    // copy that passes the row count but fails the scan (schema drift,
+    // renamed columns) must not go live — the previous snapshot keeps
+    // serving instead.
+    try {
+      db.prepare(assembleThreadSQL(db, tables)).all()
+    } catch (err) {
+      return { ok: false, error: `session query failed: ${err.message}` }
+    }
     return { ok: true, sessions: Number(row && row.n) || 0 }
   } catch (err) {
     return { ok: false, error: String((err && err.message) || err) }
@@ -880,6 +889,43 @@ function directorySubselect(db, tables) {
   return `NULL`
 }
 
+function branchSelect(db, tables) {
+  if (tables.has('workspace')) {
+    try {
+      const cols = db.prepare('PRAGMA table_info(workspace)').all().map((r) => r.name)
+      if (cols.includes('branch')) return `w.branch`
+    } catch {
+      /* table exists but is unreadable — fall through to no branch */
+    }
+  }
+  return `NULL`
+}
+
+/**
+ * Assemble the final session query for a snapshot: first-prompt source,
+ * directory source, and workspace-branch source each probed once per
+ * snapshot rather than assumed. Shared by the scan path and pull
+ * verification so a staged copy is dry-run with the exact query the scan
+ * would execute before it goes live.
+ */
+function assembleThreadSQL(db, tables) {
+  const hasInput = tables.has('session_input')
+  return THREAD_SQL
+    .replace(
+      '__FIRST_PROMPT__',
+      hasInput
+        ? `(SELECT si.prompt FROM session_input si
+            WHERE si.session_id = s.id ORDER BY si.time_created ASC LIMIT 1)`
+        : `NULL`
+    )
+    .replace(
+      `(SELECT pd.directory FROM project_directory pd
+           WHERE pd.project_id = s.project_id LIMIT 1)`,
+      directorySubselect(db, tables)
+    )
+    .replace(`w.branch AS ws_branch`, `${branchSelect(db, tables)} AS ws_branch`)
+}
+
 function toThread(row, preview, via) {
   const projectPath = str(row.project_dir) || str(row.directory)
   const tokens = num(row.tokens_input) + num(row.tokens_output) + num(row.tokens_reasoning)
@@ -916,20 +962,7 @@ function scanSnapshotFile(snap, via) {
   try {
     const tables = tableNames(db)
     if (!tables.has('session')) throw new Error('opencode snapshot has no session table')
-    const hasInput = tables.has('session_input')
-    const sql = THREAD_SQL
-      .replace(
-        '__FIRST_PROMPT__',
-        hasInput
-          ? `(SELECT si.prompt FROM session_input si
-              WHERE si.session_id = s.id ORDER BY si.time_created ASC LIMIT 1)`
-          : `NULL`
-      )
-      .replace(
-        `(SELECT pd.directory FROM project_directory pd
-           WHERE pd.project_id = s.project_id LIMIT 1)`,
-        directorySubselect(db, tables)
-      )
+    const sql = assembleThreadSQL(db, tables)
     let rows = []
     try {
       rows = db.prepare(sql).all()
