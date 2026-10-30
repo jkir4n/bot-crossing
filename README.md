@@ -1,20 +1,18 @@
 # Bot Crossing — your agent threads, as a colony
 
-> **Fork note:** this is a personal fork of [jarrenrocks/bot-crossing](https://github.com/jarrenrocks/bot-crossing), kept close to upstream. It adds Linux server support, Hermes, OpenCode, Antigravity and Cursor harness adapters, and a remote-machine design that reads sessions from other machines as well as the server's own. Upstream-authored passages that spoke in the first person are attributed to the upstream author.
-
 **[botcrossing.com](https://botcrossing.com)**
 
-Every coding-agent thread on your machines — local and remote — is a little astronaut. They walk out of the ship, claim
+Every coding-agent thread on this machine is a little bot. They walk out of the ship, claim
 a plot for their repo, and build something. When one needs you it stops and holds a `?` over
 its head; click it and the thread opens back in whichever harness it came from.
 
-It reads the harness's own files, on your own machines. Nothing is uploaded, there is no
+It reads the harness's own files, on your own machine. Nothing is uploaded, there is no
 account, and **it never writes to a harness at all** — `data/colony.json`, where the map lives,
 is the only file it writes anywhere.
 
-> **Status (upstream author's note):** published as-is. He built this for himself and cannot
-> promise to maintain it — issues and PRs are welcome but may go unanswered, and forking is
-> an entirely reasonable thing to do. [CONTRIBUTING.md](CONTRIBUTING.md) sets out what to expect.
+> **Status:** published as-is. I built this for myself and cannot promise to maintain it —
+> issues and PRs are welcome but may go unanswered, and forking is an entirely reasonable
+> thing to do. [CONTRIBUTING.md](CONTRIBUTING.md) sets out what to expect.
 
 ## Run it
 
@@ -29,16 +27,12 @@ second process. For a built version, `npm start` (build + serve) or `npm run ser
 `dist/` already exists. Binds to `127.0.0.1` by default, and answers only its own page — see
 [Keeping it local](#keeping-it-local).
 
-**Linux, macOS and Windows.** Opening a thread, revealing a folder and starting a new session
-all go through a `harness://` deep link handed to the OS opener — `xdg-open` on Linux,
-`open(1)` on macOS, ShellExecute on Windows. The scanning half was portable already. This fork
-runs the server on Linux and reads sessions from other machines as well as its own (see below).
-On Linux, where a desktop app often is not installed, the scheme is checked first and a terminal
-running the harness's own CLI opens instead when nothing answers it. A setting, *Open threads in*,
-makes the terminal the first choice rather than the fallback, on all three. Note that the deep link
-needs a desktop app registered for that scheme on the machine showing
-the colony, so where nothing is registered the folder buttons still work while opening a thread
-has nothing to reach yet.
+**macOS, Linux and Windows.** Opening a thread, revealing a folder and starting a new session
+all go through a `harness://` deep link handed to the OS opener — `open(1)` on macOS,
+`xdg-open` on Linux, ShellExecute on Windows. The scanning half was portable already. On Linux,
+where a desktop app often is not installed, the scheme is checked first and a terminal running
+the harness's own CLI opens instead when nothing answers it.
+A setting, *Open threads in*, makes the terminal the first choice rather than the fallback, on all three.
 
 ## Which harnesses work
 
@@ -50,10 +44,10 @@ somebody writing that adapter.
 | --- | --- |
 | **[Claude Code](https://claude.com/claude-code)** (Anthropic) | ✅ **Supported** — desktop app and CLI, including worktrees and live-process detection |
 | **[Codex](https://developers.openai.com/codex/cli)** (OpenAI) | ✅ **Supported** — desktop, VS Code and CLI sessions, opened through `codex://` |
-| **Hermes Agent** | ✅ **Supported in this fork** — local session store, one astronaut per bot profile; lives in the terminal and chat apps, so there is no link to open (see below) |
-| [OpenCode](https://opencode.ai) | ✅ **Supported in this fork** — serve liveness over a snapshot-primary full history (see below) |
-| [Antigravity CLI](https://antigravity.google) (Google) | ✅ **Supported in this fork** — snapshot-primary store pull with ghost pruning (see below) |
-| **[Cursor](https://cursor.com)** (Anysphere) | ✅ **Supported** — agent transcripts; the composer/sidebar threads are not read yet. This fork layers a transcript + search-index union over one snapshot pull (see below) |
+| **[OpenCode](https://opencode.ai)** | ✅ **Supported** — top-level sessions from its own store; no per-thread link to open |
+| **[Antigravity CLI](https://antigravity.google)** (Google) | ✅ **Supported** — transcripts, opened through `antigravity://`. The successor to Gemini CLI, which Google stopped serving individual accounts on 18 June 2026 |
+| **[Cursor](https://cursor.com)** (Anysphere) | ✅ **Supported** — agent transcripts; the composer/sidebar threads are not read yet |
+| **[Hermes](https://github.com/opsmason/hermes)** | ✅ **Supported** — sessions per pilot profile. Lives in the terminal and chat apps, so there is no link to open |
 | **[Kilo Code](https://kilocode.ai)** | ✅ **Supported** — top-level sessions; a thread opens as its repo folder in VS Code |
 | [Amp](https://ampcode.com) (Sourcegraph) | ⬜ Not yet |
 | [Aider](https://aider.chat) | ⬜ Not yet |
@@ -73,8 +67,8 @@ and how to find where a given harness keeps its sessions:
 **→ [`server/harnesses/README.md`](server/harnesses/README.md)**
 
 If you add one, a PR is very welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) first, which is
-honest about how much support the upstream author can offer. If landing it means editing the scanner or anything
-under `src/`, please mention that: it means the seam needs widening, and he would rather fix that
+honest about how much support I can offer. If landing it means editing the scanner or anything
+under `src/`, please mention that: it means the seam needs widening, and I would rather fix that
 than have you work around it.
 
 ## What you are looking at
@@ -137,12 +131,15 @@ thread can only ever be doing one thing. First match wins:
 
 | Signal | What the bot does | Badge |
 | --- | --- | --- |
-| Errored | Slumps, red eyes, fault light stutters | `!` |
+| Errored in the last 3 days | Slumps, red eyes, fault light stutters | `!` |
 | Running now | Hammers away at its building, sparks fly | `⚒` |
 | PR merged | Jumps, confetti, heart eyes | `✓` |
 | Unread | **Stops and waits on you** | `?` |
 | Nothing for 3 days | Sits down and sleeps, `z` bubbles | — |
 | Anything else | Potters around its plot | — |
+
+An error ages out on the same three-day clock as everything else. Without that, a run that
+failed a month ago would hold its bot at `!` forever and keep its whole repo from folding away.
 
 Only the states that want something from you get a badge. With most of a real thread list
 sitting quiet, a symbol over every bot buries the one `?` that actually matters.
@@ -197,10 +194,10 @@ into the same repo. Picking somebody is also picking the zone they are standing 
 **The repo**, at the top, whether or not anybody is selected:
 
 - **New conversation** (`C`) starts a fresh thread in that folder. It is the same
-  `claude://code/new?folder=…` deep link the macOS Finder's "New Claude Code Session Here" quick
+  `claude://code/new?folder=…` deep link Finder's "New Claude Code Session Here" quick
   action uses, so the desktop app opens an empty session with the repo as its workspace —
   nothing is resumed and nothing is written.
-- **Reveal in file manager** (Finder on macOS, Explorer on Windows, the system file manager on Linux) opens the folder, **Copy path** copies it.
+- **Finder** (Explorer on Windows) opens the folder, **Copy path** copies it.
 - Underneath, everything running in that repo, whoever wants something first. Clicking one
   flies to its bot and selects it.
 
@@ -247,15 +244,16 @@ thread it already has. `claude://resume` is the fallback for threads that only e
 transcript: it *imports* the transcript, which creates a second untitled session and rewrites
 the `.jsonl`, so it is only ever used when there is nothing to navigate to.
 
-Archiving carries a deliberate one-writer discipline: the browser owns
-`data/colony.json` and PUTs it whole, `/api/archive` only touches Claude Code's records. If
-both wrote it, a save from a page holding older state would silently drop every archive made
-since that page loaded. Claude Code also rewrites its session records from memory and can
-stomp the flag, so the colony re-asserts it on every scan — an archive that gets stomped comes
-back within one poll.
+Archiving is the colony's own bookkeeping, with one writer: the browser owns
+`data/colony.json` and PUTs it whole, and the server only reads the archive list to mark the
+threads it names. A save from a tab holding older state is refused with what is on disk, and
+the tab merges its own edits on top, so it cannot drop an archive another tab made since it
+loaded.
 
-Nothing is ever written to your Claude Code data except that one `isArchived` field. The
-folder buttons only ever hand a path to the OS opener.
+Nothing is ever written to your Claude Code data. Archiving here used to set `isArchived` on
+the desktop app's own record, but the app serves from the copy it loaded at launch, so the
+thread stayed in its list until a restart; [DECISIONS.md](DECISIONS.md) has the rest. The
+folder buttons only ever hand a path to `open`.
 
 The deep links above are the **Claude Code adapter's** business, not the colony's — another
 harness plugs its own in, and a harness with no deep link simply greys the button out. See
@@ -267,7 +265,12 @@ and `~/workspaces/2/foo`, which is what you get keeping parallel copies instead 
 it grows leftward until it is not, and you get `1/foo` and `2/foo` on separate ground. Only
 names that actually collide change, because the name is also the key your saved layout is
 stored under and disambiguating everything would move every plot on the map. A repo that has
-moved or gone since the last scan fails at the server rather than handing the OS opener a dead path.
+moved or gone since the last scan fails at the server rather than handing `open` a dead path.
+
+A linked git worktree stands on its repository's plot whichever harness made it: the checkout's
+own `.git` file names the repository, so a Codex worktree under `~/.codex/worktrees` lands on the
+same ground as the repo instead of a second plot beside it. The Claude desktop app's scratch
+sessions each live in a folder of their own, and share one plot called **Scratch**.
 
 Name plates are hit-tested in screen space rather than raycast: they are billboarded in the
 vertex shader, so a raycast would test the quad where it was authored rather than where it
@@ -519,38 +522,6 @@ modules is not.
 Eye colours, lamps, windows, crop rows and plot kerbs are all authored above 1.0 so the bloom
 pass picks them out. The threshold is deliberately high (0.92) — only those things clear it,
 so lit surfaces stay crisp instead of going hazy.
-
-## The power zone (this fork)
-
-At the colony's edge sits a dedicated power tile that mirrors a real home's
-energy story, live from Home Assistant: a solar array, a battery bank whose
-blocks fill and animate with the house's state of charge, and two drill rigs
-whose rooftop turbines spin only while the home is actually on the grid.
-
-Nothing about it is computed by the colony. A small poller (server/ha-solar.mjs)
-reads a Home Assistant instance every ~60 seconds and the tile renders exactly
-what HA reported — including the mode (solar / battery / grid) and the battery's
-cut-off/cut-in thresholds, all taken from HA rather than guessed. When HA is
-unreachable the tile goes neutral; when an input isn't configured it simply
-doesn't appear. Clicking the tile opens a stats panel with the live numbers.
-
-### Wiring it up
-
-Everything is operator configuration — no entity IDs are compiled in. Copy
-server/ha-solar.conf.example to
-~/.config/systemd/user/bot-crossing.service.d/ha.conf, fill in your HA URL,
-a long-lived access token, and the entity IDs you want the tile to mirror
-(production, battery SoC, battery power, optionally a grid-mode entity and
-threshold sensors), then restart the service. Not configured means not
-rendered — the tile sits neutral and the rest of the colony is unaffected.
-All house logic stays in Home Assistant; the colony fetches and displays.
-
-### The Lighting settings
-
-The existing Lighting panel gains a Home-Assistant time mode: when enabled,
-the colony's day/night cycle follows the sun state HA reports, with the manual
-sliders greyed out but visible. Drag the sky or press `L` for a 60-second peek
-at manual control; let go and it eases back to HA time.
 
 ## Where the art comes from
 
@@ -809,7 +780,7 @@ the blade's shadow lags the blade.
 ## Keeping it local
 
 The server reads your agent transcripts and can ask the OS to open things, which makes it a
-more interesting target than a localhost toy usually is. Three things hold it in:
+more interesting target than a localhost toy usually is. Four things hold it in:
 
 - **It binds `127.0.0.1`.** Nothing outside the machine can reach it, unless you deliberately
   change that — see below.
@@ -819,8 +790,13 @@ more interesting target than a localhost toy usually is. Three things hold it in
   `Host: their-domain`, and are refused.
 - **It checks `Origin`.** A cross-site `fetch` with a `text/plain` body is not preflighted, so
   without this any page you happened to have open could POST here — spawning sessions, opening
-  file-manager windows, or overwriting the colony layout — even while unable to read the response.
+  Finder windows, or overwriting the colony layout — even while unable to read the response.
   Requests from anywhere but this server's own page are refused.
+- **The built page says what it may do.** The page draws text it did not write: thread titles
+  are your prompts. Every place that text reaches the page escapes it, and `npm start` and
+  `npm run serve` add a Content-Security-Policy as the backstop for the day one does not. Only
+  the bundle's own script runs, the page cannot be framed, and it fetches nothing but this
+  server. `npm run dev` does not send the policy, because Vite injects styles for hot reload.
 
 The practical cost: a bare `curl` POST is refused too, since browsers always send `Origin` on
 POST and its absence means the caller is not the page. Add `-H 'Origin: http://localhost:5274'`
@@ -834,6 +810,17 @@ tablet on the sofa:
 ```bash
 BOT_CROSSING_HOST=0.0.0.0 npm start
 ```
+
+Serving it from WSL2 needs one more thing. The server only learns the addresses of its own
+interfaces, and inside WSL2 that is the virtual adapter. A phone reaches the Windows side, so
+its requests arrive with the Windows address in `Host`, and the check above refuses them.
+Name those addresses and they pass the same Host and Origin checks as everything else:
+
+```bash
+BOT_CROSSING_HOST=0.0.0.0 BOT_CROSSING_ALLOWED_HOSTS=192.0.2.10,my-pc.example npm start
+```
+
+Comma separated, hostnames or addresses. Nothing else about the checks changes.
 
 **Understand what that hands out before you do it.** The two checks above stop a *web page* from
 driving the server; they are not access control, and they do nothing about another device asking
@@ -855,18 +842,19 @@ BOT_CROSSING_TERMINAL=kitty npm start
 
 A name on `PATH` or an absolute path, and it has to be one whose flags are known — gnome-terminal, konsole, kitty, alacritty, ghostty, wezterm, foot, xterm and their relatives — since one that is not is skipped rather than guessed at.
 On macOS only a named terminal works; point it at a real binary rather than an `.app`.
-Windows is not supported yet.
+On Windows the variable is not read: a thread opens in Windows Terminal when it is installed, and in `cmd.exe` otherwise.
 
 What it touches on disk, in full:
 
 | | |
 | --- | --- |
 | Reads | Your harness's own session records and transcripts |
-| Writes | `data/colony.json`, and **one** `isArchived` field per archived thread |
+| Writes | `data/colony.json`, and nothing else |
 | Sends | Nothing. No network calls, no telemetry, no account |
 
 `data/colony.json` holds the names and paths of the repos you work in, so it is gitignored —
-worth knowing before you copy one into an issue.
+worth knowing before you copy one into an issue. For the same reason it is written readable by
+your account only (`0600`), not by every account on the machine.
 
 ## Layout
 
@@ -877,8 +865,8 @@ server/
     claude-code.mjs
   lib/         filesystem helpers the adapters share
   scan.mjs     harness-agnostic: asks every detected harness, merges, sorts
-  api.mjs      /api/threads, /api/harnesses, /api/state, /api/open, /api/archive,
-               /api/new-session, /api/reveal
+  api.mjs      /api/threads, /api/harnesses, /api/state, /api/open, /api/new-session,
+               /api/reveal
   serve.mjs    static server for the built app
 src/
   core/        settings, renderer + post chain + colour grade, the Google Earth camera,
@@ -929,14 +917,12 @@ Built by **[Jarren Rocks](https://jarren.rocks)**, mostly as a side effect of bu
 **[Emra](https://emra.app)** — which is where most of the threads in the screenshots come from,
 and why a tool for keeping track of a lot of them at once existed in the first place.
 
-This fork adds Linux server support, the Hermes, OpenCode, Antigravity and Cursor adapters, and the remote-machine design; everything above remains the upstream author's work.
-
 ## Licence
 
 [MIT](LICENSE) © Jarren Rocks. Do what you like with it — including forking it, which
 [CONTRIBUTING.md](CONTRIBUTING.md) explains is a first-class option rather than a last resort.
 
-The art is not the upstream author's own. Three CC0 packs by **[Kay Lousberg](https://kaylousberg.com)** — [Space
+The art is not mine. Three CC0 packs by **[Kay Lousberg](https://kaylousberg.com)** — [Space
 Base Bits](https://kaylousberg.itch.io/space-base-bits), [Character
 Animations](https://kaylousberg.itch.io/kaykit-character-animations) and [Forest Nature
 Pack](https://kaylousberg.itch.io/kaykit-forest) — and **[Kenney](https://kenney.nl)**'s
@@ -957,166 +943,3 @@ Everything in the repository today stays MIT; new designs, models and physical f
 do not. The code that draws the bots stays MIT either way — see [TRADEMARKS.md](TRADEMARKS.md).
 
 Not affiliated with Anthropic, OpenAI, Google, or any of the other harness vendors listed above.
-
----
-
-## Bot Crossing Colony — this fork
-
-> Personal fork. Everything above is upstream's readme, kept intact so `git fetch upstream` merges cleanly. Below is the fork's own direction.
-
-### Idea in one line
-
-Every agent thread on every machine is an astronaut. One hex zone per project
-folder. Multiple harnesses (Hermes, OpenCode, Antigravity, Cursor) show up as one
-union colony, served from an always-on home server, viewable from any browser.
-
-### Architecture (built 04 Sep 2026)
-
-- **Colony server on a Linux host** (production `npm start` build — small
-  footprint, no dev server for 24/7). Viewable from any browser on the home
-  network via `BOT_CROSSING_HOST=0.0.0.0 npm start` (same caveats as
-  [Serving it to your network](#serving-it-to-your-network)).
-- **Hermes agent (same host)** → `server/harnesses/hermes.mjs` reads the local
-  session store read-only, one SQL pass per scan (fast enough that no mtime
-  cache is needed). One astronaut per bot: the default profile plus every named
-  profile with its own session store shows up as its own pilot. Scheduled runs
-  are skipped — each one would stand on the map as an astronaut nobody ever
-  talks to. Archiving is colony-internal (`data/colony.json`) — the store is
-  never written; open/new-session
-  have no deep link to hand back and grey out per the interface.
-- **OpenCode Desktop (second machine)** → `server/harnesses/opencode.mjs`:
-  serve-first liveness over a snapshot-primary full history. How it works and
-  how to set it up is below.
-- **Codex CLI** → upstream `server/harnesses/codex.mjs`: file-based parse of
-  the local `~/.codex/sessions/…/rollout-*.jsonl` transcripts (`CODEX_HOME`
-  override), opened through `codex://` links. Read-only, like everything else.
-- **Antigravity (second machine)** → `server/harnesses/antigravity.mjs`:
-  snapshot-primary pull of the remote session store into a local cache, same
-  mechanics as OpenCode (copy-then-query, never the live files). Prunes
-  summary-index rows with no backing file and annotation orphans left behind
-  on delete. Read-only; open/new-session grey out per the interface.
-- **Cursor (second machine)** → `server/harnesses/cursor.mjs`: per-chat
-  transcripts unioned with the search index over one snapshot pull (transcript
-  stats + first-line heads + base64 index copy). Prunes index-only stubs,
-  contentless stubs, same-conversation copies under different slugs (newest
-  transcript wins) and stale transcript-only rows — fail-open when the index
-  is unreadable, and `is_archived` fills the archived field, never the prune
-  decision. Read-only.
-- **Remote-open (Phase 2):** tiny authenticated listener on the second machine;
-  Phase 1 greys out open for remote threads (the interface supports it natively).
-- **IDs are harness-prefixed** (`hermes:<pilot>:<id>`, `opencode:<session-id>`,
-  `antigravity:<uuid>`, `cursor:<uuid>`)
-  so harnesses never merge threads.
-- **An unreachable machine reads as absent, never as error** — the scan and the
-  other harnesses are never affected.
-
-### OpenCode link: what it does
-
-Three sources, merged on every scan. The full history is the point: the serve
-API only shows the sessions loaded in the *running* Desktop instance, while the
-real history lives in the session store on the other machine.
-
-1. **Remote session-store snapshot (primary).** The colony pulls a copy of the
-   store (`opencode.db`, SQLite) over SSH into a persistent local cache and
-   queries the copy — never the live file (a copy never locks Desktop's files,
-   and live-querying over a network share risks WAL trouble). The pull is
-   mtime-gated: a cheap remote stat runs at most once per
-   `OPENCODE_DB_STAT_TTL_SECONDS` window, and the bulk copy runs in the
-   background only when the remote signature actually changed, at most once per
-   `OPENCODE_DB_PULL_MIN_SECONDS`, so a scan never blocks on a transfer. While
-   Desktop runs, its `-wal` carries the newest writes, so db **and** wal are
-   pulled and verified-then-swapped as a pair (`-shm` is deliberately never
-   copied — shared memory is rebuilt on open, a live copy is meaningless); a
-   mid-pull Desktop write or a failed verify discards the set and the previous
-   snapshot keeps serving. Snapshot-backed threads are archive-view-only:
-   writing a remote store file from here would race Desktop, which rewrites its
-   records from memory.
-2. **Serve HTTP API (live overlay).** `GET /session`, `/session/status`,
-   `/project`, plus capped message previews. Serve threads merge *into* the
-   snapshot list by session id: serve fills in live running flags and fields
-   the snapshot lacks, and sessions too new to have pulled yet appear
-   serve-backed until the next snapshot refresh absorbs them.
-3. **Local store copy (union member).** Same copy-then-query mechanics for a
-   store on the colony host itself (`OPENCODE_DB_PATH`, else the host default)
-   — so the host's own sessions still show alongside the remote history.
-
-What to expect: the snapshot shows **every** session in the store (full
-history, dozens across all projects); serve adds liveness (which threads are
-running *now*) for the handful of sessions the running Desktop instance has
-loaded. A thread opens only if it has a `share_url` — there is no Desktop deep
-link to hand back, so unshared threads grey out with a reason per the interface.
-
-### OpenCode link: setup
-
-Desktop's serve API binds loopback-only on a random port with an autogenerated
-password — both rotate every launch — so the colony reaches it through a
-read-only SSH tunnel that resolves fresh credentials on every run without ever
-disrupting Desktop (no restarts, no config or firewall changes on that side).
-
-- `scripts/opencode-tunnel.sh -- <command>` — one-shot: resolves the current
-  port + credentials over SSH and exports `OPENCODE_SERVE_URL` (plus
-  `OPENCODE_SERVE_USERNAME` / `OPENCODE_SERVE_PASSWORD`) for the command.
-- `scripts/opencode-keeper.sh` — persistent version for 24/7: holds `ssh -L`
-  open, re-resolves and re-establishes by itself across Desktop restarts, and
-  publishes the same three values to a `0600` creds file the adapter reads on
-  every scan (explicit env always wins; a stale file reads as unconfigured).
-  When the remote side is unreachable it removes the file so the adapter
-  cleanly degrades to zero OpenCode threads.
-- Install: copy
-  `scripts/systemd/bot-crossing-opencode-keeper.service.example` to the
-  operator's user systemd unit directory, set the real target there, enable +
-  start. Real connection values live in the operator's environment — never in
-  the repo.
-- Env names (values stay local): `OPENCODE_SSH_TARGET` (required — keeper and
-  tunnel target; the snapshot pull takes `OPENCODE_DB_SSH_TARGET` and falls
-  back to it), `OPENCODE_DB_REMOTE_PATH`, `OPENCODE_SNAPSHOT_DIR`,
-  `OPENCODE_SERVE_URL` (or `OPENCODE_SERVE_HOST` / `OPENCODE_SERVE_PORT`, plus
-  optional `OPENCODE_SERVE_USERNAME` / `OPENCODE_SERVE_PASSWORD`),
-  `OPENCODE_SERVE_CREDS_FILE`, `OPENCODE_LOCAL_PORT`, `OPENCODE_KEEPER_INTERVAL`,
-  `OPENCODE_DB_STAT_TTL_SECONDS`, `OPENCODE_DB_PULL_MIN_SECONDS`,
-  `OPENCODE_DB_PATH`.
-
-### Deployment
-
-The colony runs as a user systemd unit on the Linux host
-(`bot-crossing.service`: `WorkingDirectory` is the repo checkout, port 5274,
-production `npm start` build). Each remote snapshot pull takes its SSH target
-from a unit drop-in holding one env var, values operator-side and never in
-the repo:
-
-- `antigravity-snapshot.conf` → `ANTIGRAVITY_SSH_TARGET`
-- `opencode-snapshot.conf` → `OPENCODE_DB_SSH_TARGET` (falls back to
-  `OPENCODE_SSH_TARGET`, the keeper/tunnel target)
-- `cursor-snapshot.conf` → `CURSOR_SSH_TARGET`
-- `hermes-aliases.conf` → `HERMES_PROJECT_ALIASES` (display aliases for
-  Hermes project tiles, e.g. a folder basename relabelled to its friendly
-  name — operator environment, never the repo)
-
-After changing one: `systemctl --user daemon-reload` +
-`systemctl --user restart bot-crossing.service`. Ship code with a push to the
-fork's `main`, then the Windows checkout pulls the fork.
-
-### Signature feature (Phase 2): solar tile
-
-A solar farm at the colony's edge driven by minimal live Home Assistant data (solar W,
-battery %, grid flow, ~60s poll, isolated poller). Drives the existing day/night
-engine: sun elevation sets time-of-day, solar watts scale panel glow, battery
-carries night lighting. Ambient-only; a failed poll degrades to a neutral tile.
-
-### Upstream relationship
-
-Fork-first (our direction diverges: Linux + Windows + multi-machine). PR back only
-the clean separable slices: Linux `launch()` (merged as #2), the Hermes adapter
-(open as #7), then the OpenCode and Cursor adapters. Author publishes as-is,
-PRs may go unanswered — never gate progress on review. Fork-only stays
-fork-only: remote-colony snapshot pulls, solar tile, one-astronaut-per-bot roster.
-
-### Status
-
-Live 05 Sep 2026: Linux port + four harness adapters (Hermes, OpenCode,
-Antigravity, Cursor) all serving in the production colony — `/api/threads`
-shows 183 threads (Hermes 168, OpenCode 5, Antigravity 7, Cursor 3). Recent:
-Cursor adapter + ghost prune (16 union rows → 3 real chats), Antigravity
-annotation-orphan prune. Remaining: Codex adapter, remote-open listener,
-solar tile. Upstream PR #2 (Run on Linux) merged, PR #7 (Hermes adapter) open.
-See `AGENTS.md` for the phased TODO.
