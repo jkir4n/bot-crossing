@@ -13,7 +13,7 @@
       recorder history passthrough. Operator env only (server/ha-solar.conf.example);
       HA holds ALL house logic — colony fetches and renders, never derives.
 
-## Upstream facts (updated 19 Sep 2026)
+## Upstream facts (updated 30 Oct 2026)
 
 - `Station-Sciences/bot-crossing` (org move from `jarrenrocks` — old URLs redirect;
   upstream remote URL updated 18 Sep), MIT. Quiet at fork time; **very active by mid-Sep**
@@ -32,7 +32,21 @@
   and fork README voice. Suite: 127 pass / 0 fail / 9 fork-skipped (upstream's
   local opencode/antigravity contracts — see the fork note in `test/harness.test.mjs`).
 - **Syncs:** 09 Sep (a497242 baseline), 17 Sep (fefaf7b), 19 Sep (d05ac2f →
-  5488d00, deployed live the same night). 17 Sep resolutions: cursor keeps fork
+  5488d00, deployed live the same night), **30 Oct (d05ac2f-era main →
+  `8cd9d76`, merge `e5e4868`, branch `sync/upstream-20261030` kept as marker,
+  deployed live 30 Oct)**: the Oct-23 upstream train — 8 PRs (#58 dup-session
+  dedup keeps newer file, #63 claude-code mtime cache (a poll was parsing
+  148 MB of JSON), #66 serve security headers + colony.json 0600, #67 thread
+  title fallback, #70 WSL2 allowed-hosts, #72 Homebrew test fixes, #82 Windows
+  desktop/terminal/Cursor/plots fixes, #93 errored threads sleep after 3 days,
+  #99 README/archiving). Resolutions: fork's remote-capable opencode /
+  antigravity / cursor adapters kept whole — upstream's new local-only
+  machinery (antigravity prompt-history workspaces, cursor disk-path decoder)
+  is upstream-side and NOT grafted (our data is the SSH snapshot, not local
+  disk); 2 new upstream tests fork-skipped for those contracts. Suite:
+  155 pass / 0 fail / 11 fork-skipped. Deploy verified: bundle
+  `index-CzMRLDWa.js` served == built, 490 threads stable across cycles,
+  journal clean. 17 Sep resolutions: cursor keeps fork
   scan + open-refusal; settings/plots/colony/main/buildings merged both ways.
   Hotfix (17 Sep): pilot-fold roster entries settle at their winning thread's
   site (upstream's new site loop assumed a building per roster member) — expect
