@@ -611,7 +611,10 @@ test.skip('Antigravity opens through antigravity:// scheme and handles invalid r
   await fsp.rm(home, { recursive: true, force: true })
 })
 
-test('an Antigravity session with no folder in its transcript takes the one its prompt history names', async () => {
+// fork-skip: upstream's prompt-history workspace facts read the LOCAL prompt-history file beside
+// brain/ — the fork's Antigravity adapter is remote-capable (SSH snapshot pull) and has no local
+// prompt history to consult. Same divergence class as the opencode/antigravity skips above.
+test.skip('an Antigravity session with no folder in its transcript takes the one its prompt history names', async () => {
   const home = await fakeAntigravity([{ type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'tidy up' }])
   const repo = path.join(home, 'work', 'site')
   const lines = [
@@ -810,7 +813,10 @@ test("a new thread is not started in the scratch plot's folder, which is the des
  * `data_pipeline_v2` is `data-pipeline-v2`. Only the folders on disk can say which dash
  * was which.
  */
-test('Cursor folder names decode against the disk, underscores and drive letters included', async () => {
+// fork-skip: upstream's decodeFolder resolves Cursor's mangled workspace slugs against the LOCAL
+// disk; the fork's cursor adapter is remote-capable (snapshot pull from the Windows host) and keeps
+// its own projectOfSlug derivation. Same divergence class as the opencode/antigravity skips above.
+test.skip('Cursor folder names decode against the disk, underscores and drive letters included', async () => {
   const { decodeFolder } = await import('../server/harnesses/cursor.mjs')
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'cursor-decode-'))
   try {
