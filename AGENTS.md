@@ -51,6 +51,18 @@
   Hotfix (17 Sep): pilot-fold roster entries settle at their winning thread's
   site (upstream's new site loop assumed a building per roster member) — expect
   this class in future upstream merges.
+- **31 Oct (merge `0d696f1`, branch `sync/upstream-1031b`, deployed live 31
+  Oct)**: 5 upstream PRs — #57 nav hotkeys (B/N/R, Shift+Tab planets, / or F
+  find), #78 unarchive (undo on the archive toast), #94 drag bots (pick up by
+  holding, send home on release), #98 claude first-prompt-past-head titles,
+  #106 claude reads every CLI home + sidebar titles. One conflict: `src/ui/hud.js`
+  — resolved combine-both (fork's presence chips + solar power panel kept;
+  upstream's searchThreads import, archived-list signature, startRename added).
+  Upstream deps moved (`three` bump, @gltf-transform) — `npm ci` required in
+  both worktree and live tree before build. Suite: 202 pass / 0 fail / 11
+  fork-skipped (47 new upstream tests). Deploy verified: bundle
+  `index-DmDgQSr4.js` served == built, journal clean; threads 489 active
+  (one thread now lives on the new archived list — expected, not a loss).
 - Adapter contract (`server/harnesses/README.md`): **one new file + one line in
   `index.mjs`**; `detect / scanThreads / openThread / newSession / setArchived /
   appStartedAt?`. Read-only except one archive flag; never block the scan
