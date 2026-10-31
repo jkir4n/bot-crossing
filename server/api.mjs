@@ -7,6 +7,7 @@ import { getSolarState } from './ha-solar.mjs'
 import { schemeHasHandler, schemeOf } from './lib/xdg.mjs'
 import { openInTerminal } from './lib/terminal.mjs'
 import { focusWindowOfPid } from './lib/windows.mjs'
+import { threadsForPage } from './lib/page-threads.mjs'
 import {
   defaultHarness,
   harnessStatus,
@@ -41,6 +42,7 @@ function migrate(raw) {
     opened: asArray(raw.opened).map(migrateId),
     seen: keys(raw.seen),
     viewedAt: keys(raw.viewedAt),
+    names: keys(raw.names),
   }
 }
 
@@ -59,12 +61,20 @@ const emptyState = () => ({
   seen: {},
   hiddenProjects: [],
   viewedAt: {},
+  names: {},
   settings: null,
   updatedAt: 0,
 })
 
 const asObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
 const asArray = (v) => (Array.isArray(v) ? v : [])
+/** Names you gave threads here. Strings only, and never empty — an empty one means "use the harness's title". */
+const asNames = (v) =>
+  Object.fromEntries(
+    Object.entries(asObject(v))
+      .filter(([, name]) => typeof name === 'string' && name.trim())
+      .map(([id, name]) => [id, name.trim().slice(0, 120)]),
+  )
 
 async function readState() {
   try {
@@ -78,6 +88,7 @@ async function readState() {
       seen: asObject(raw.seen),
       hiddenProjects: asArray(raw.hiddenProjects).map(String).filter(Boolean),
       viewedAt: asObject(raw.viewedAt),
+      names: asNames(raw.names),
       settings: raw.settings && typeof raw.settings === 'object' ? raw.settings : null,
       updatedAt: Number(raw.updatedAt) || 0,
     }
@@ -113,6 +124,7 @@ async function writeState(next) {
     seen: asObject(next.seen),
     hiddenProjects: asArray(next.hiddenProjects).map(String).filter(Boolean),
     viewedAt: asObject(next.viewedAt),
+    names: asNames(next.names),
     settings: next.settings && typeof next.settings === 'object' ? next.settings : null,
     updatedAt: Date.now(),
   }
@@ -286,22 +298,32 @@ async function reconcileArchived(threads) {
    *
    * So the ids inside `ref` count too. They are opaque to everything else here — this only ever
    * asks whether a string it already holds appears among them.
+   *
+   * Returns the ones that matched, which are what un-archiving has to take off the list.
    */
-  const archived = (thread) => {
-    if (wanted.has(thread.id)) return true
+  const matches = (thread) => {
+    const hits = new Set()
+    if (wanted.has(thread.id)) hits.add(thread.id)
     const ref = thread.ref
-    if (!ref || typeof ref !== 'object') return false
-    for (const value of Object.values(ref)) {
-      if (typeof value === 'string') {
-        if (value && wanted.has(value)) return true
-      } else if (Array.isArray(value)) {
-        for (const v of value) if (typeof v === 'string' && v && wanted.has(v)) return true
+    if (ref && typeof ref === 'object') {
+      for (const value of Object.values(ref)) {
+        if (typeof value === 'string') {
+          if (value && wanted.has(value)) hits.add(value)
+        } else if (Array.isArray(value)) {
+          for (const v of value) if (typeof v === 'string' && v && wanted.has(v)) hits.add(v)
+        }
       }
     }
-    return false
+    return [...hits]
   }
 
-  return threads.map((t) => (archived(t) ? { ...t, archived: true } : t))
+  // `archivedInHarness` keeps the harness's own answer, so the page can tell an archive it can
+  // take back (this list) from one only the harness can; `archivedAs` is which entries on the
+  // list are this thread.
+  return threads.map((t) => {
+    const hits = matches(t)
+    return hits.length ? { ...t, archived: true, archivedInHarness: t.archived === true, archivedAs: hits } : t
+  })
 }
 
 function send(res, status, body) {
@@ -410,7 +432,7 @@ export async function apiMiddleware(req, res, next) {
 
   try {
     if (url.pathname === '/api/threads' && req.method === 'GET') {
-      const threads = await reconcileArchived(await scanThreads())
+      const threads = threadsForPage(await reconcileArchived(await scanThreads()))
       // A harness that is present but cannot read its own store says so here, rather than
       // appearing healthy in the list while quietly contributing nothing.
       const warnings = (await harnessStatus()).filter((h) => h.detected && h.error).map((h) => h.error)

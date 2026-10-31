@@ -28,6 +28,9 @@ import {
 } from './game/api.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
+import { ACTIVE, JumpRun, NEEDS_YOU, busiestOrder, crewOrder, inScope, needsYouOrder, nextInRing } from './game/jumps.js'
+import { archivedInProject, restorableArchives, unarchive, withLocalArchive } from './game/archive.js'
+import { canGrab } from './agents/carry.js'
 
 /**
  * Boot and the outer game loop.
@@ -69,7 +72,7 @@ engine.setPlanetGrade(PLANETS[settings.get('planet')]?.grade)
 const rig = new CameraRig(engine.camera, engine.canvas, settings)
 const colony = new Colony(engine.scene, settings, engine.camera, engine.renderer)
 
-let state = { archived: [], archivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], viewedAt: {} }
+let state = { archived: [], archivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], viewedAt: {}, names: {} }
 let threads = []
 /** Last legend built for the bottom bar, kept so the open zone's chip can light up between polls. */
 let legendProjects = []
@@ -81,7 +84,10 @@ let selectedProject = null
 /** The power statistics panel, open exclusive with repos and threads. */
 let selectedPower = false
 let hoverId = null
-let statusCursor = 0
+/** The run of B / N / stat-pill presses in progress — see `JumpRun`. */
+const jumpRun = new JumpRun()
+/** Threads just un-archived, so the next pass walks them out of the ship. */
+const restoring = new Set()
 let pendingSave = 0
 const hoverGround = new THREE.Vector3()
 
@@ -117,9 +123,11 @@ const actions = {
     return on
   },
 
-  cyclePlanet: () => {
+  /** Next planet, or the previous one with `back` (shift+Tab), wrapping either way. */
+  cyclePlanet: ({ back = false } = {}) => {
     const ids = Object.keys(PLANETS)
-    const next = ids[(ids.indexOf(settings.get('planet')) + 1) % ids.length]
+    const step = back ? -1 : 1
+    const next = ids[(ids.indexOf(settings.get('planet')) + step + ids.length) % ids.length]
     settings.set('planet', next)
     hud.hint(`${PLANETS[next].name} — ${PLANETS[next].blurb}`)
   },
@@ -134,17 +142,109 @@ const actions = {
     hud.hint(next.label)
   },
 
-  /** Fly to the next astronaut in a given state, cycling through them on repeat presses. */
+  /**
+   * Fly to the next astronaut in a given state — what a HUD stat pill, or the rail's Next
+   * button, jumps to. Always the whole colony: the pills count the whole colony.
+   */
   focusStatus: (status) => {
-    const key = status === 'agents' ? null : status
-    const pool = colony.astronauts.agents.filter((a) => (key ? a.status === key : true))
-    if (!pool.length) {
-      hud.hint(key ? `Nobody is ${(STATUS_LABEL[key] || key).toLowerCase()} right now` : 'No bots on the surface')
+    const keys = status === 'agents' ? null : Array.isArray(status) ? status : [status]
+    const qualifies = (c) => !keys || keys.includes(c.status)
+    const rank = keys ? needsYouOrder : (list) => crewOrder(list, projectOrder())
+    const id = jumpRun.next(
+      `status:${keys || 'all'}`,
+      selectedId,
+      () => rank(jumpCandidates().filter(qualifies)).map((c) => c.id),
+      (id) => isCandidate(id, qualifies)
+    )
+    if (!id) {
+      hud.hint(
+        keys
+          ? keys.length > 1
+            ? 'Nobody needs you right now'
+            : `Nobody is ${(STATUS_LABEL[keys[0]] || keys[0]).toLowerCase()} right now`
+          : 'No bots on the surface'
+      )
       return
     }
-    pool.sort((a, b) => a.id.localeCompare(b.id))
-    const agent = pool[statusCursor++ % pool.length]
-    select(agent.id, { fly: true })
+    select(id, { fly: true })
+  },
+
+  /**
+   * Next bot waiting on you: errors, then approvals, then replies, longest-waiting first.
+   * The open zone by default; `outside` (shift) is every other zone.
+   */
+  focusNeedsYou: ({ outside = false } = {}) => {
+    const project = selectedProject
+    const qualifies = (c) => NEEDS_YOU.includes(c.status)
+    const id = jumpRun.next(
+      `needs:${outside}`,
+      selectedId,
+      () => needsYouOrder(inScope(jumpCandidates().filter(qualifies), project, { outside })).map((c) => c.id),
+      (id) => isCandidate(id, qualifies)
+    )
+    if (id) select(id, { fly: true })
+    else hud.hint(emptyScopeHint(project, outside, qualifies, 'needs you'))
+  },
+
+  /**
+   * Cycle to the next crew member. Plain stays in the open zone; shift steps out of it, to
+   * the first crew of the next zone along, so repeated shift-presses tour the zones.
+   */
+  focusAgent: ({ outside = false } = {}) => {
+    const project = selectedProject
+    const all = crewOrder(jumpCandidates(), projectOrder())
+    const pool = new Set(inScope(all, project, { outside }).map((c) => c.id))
+    const id = nextInRing(all, (c) => pool.has(c.id) && c.id !== selectedId, selectedId)
+    if (id) select(id, { fly: true })
+    else if (!outside && pool.has(selectedId)) hud.hint(`Nobody else in ${project}`)
+    else hud.hint(emptyScopeHint(project, outside))
+  },
+
+  /** Type-to-find over the open repo's threads that are on the map; Enter flies to the pick. */
+  openSearch: () => {
+    if (!selectedProject) {
+      hud.hint('Open a repo first, then press / to find a thread in it')
+      return
+    }
+    const list = [...colony.threads.values()]
+      .filter((t) => t.project === selectedProject && isCandidate(t.id))
+      .sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
+      .map((t) => ({ id: t.id, title: t.title, worktree: t.worktree, status: statusFor(t, Date.now()) }))
+    if (!list.length) {
+      hud.hint(`No threads on the map in ${selectedProject}`)
+      return
+    }
+    hud.openSearch(list, (id) => select(id, { fly: true }))
+  },
+
+  /** Step to the next repo, wrapping — the same order the legend lists them in. */
+  cycleProject: () => {
+    const order = colony.plotOrder
+    if (!order.length) {
+      hud.hint('No projects yet')
+      return
+    }
+    const from = order.findIndex((p) => p.id === selectedProject)
+    const plot = order[(from + 1) % order.length]
+    selectProject(plot.id, { fly: true })
+  },
+
+  /**
+   * Jump to whoever has been busiest lately, walking down the ranking on repeat presses.
+   * Only active bots — building, or stuck on you — since an idle one has nothing to see.
+   * Plain ranks the open zone; shift ranks everything outside it.
+   */
+  focusBusiest: ({ outside = false } = {}) => {
+    const project = selectedProject
+    const qualifies = (c) => ACTIVE.includes(c.status)
+    const id = jumpRun.next(
+      `busiest:${outside}`,
+      selectedId,
+      () => busiestOrder(inScope(jumpCandidates().filter(qualifies), project, { outside })).map((c) => c.id),
+      (id) => isCandidate(id, qualifies)
+    )
+    if (id) select(id, { fly: true })
+    else hud.hint(emptyScopeHint(project, outside, qualifies, 'is busy'))
   },
 
   focusProject: (name) => {
@@ -176,7 +276,21 @@ const actions = {
 
   select: (id) => select(id, {}),
 
-  focusThread: (id) => select(id, { fly: true }),
+  // A thread past the bot budget (Settings → Max bots) has nobody on the map to select, so a
+  // click on its row would otherwise do nothing at all: open it instead.
+  focusThread: async (id) => {
+    if (colony.agentFor(id)) return select(id, { fly: true })
+    const thread = threads.find((t) => t.id === id)
+    if (!thread) return
+    try {
+      const shown = await openThread(thread, settings.get('openIn'))
+      const name = thread.harnessName || 'your harness'
+      hud.toast(shown.via === 'terminal' ? `Opened ${name} in a terminal` : `Opened in ${name}`)
+      setTimeout(poll, 1800)
+    } catch (err) {
+      hud.toast(err.message || 'Could not open that thread', 'err')
+    }
+  },
 
   /**
    * A new thread in this repo. The desktop app opens an empty session with the folder as
@@ -227,6 +341,31 @@ const actions = {
     queueSave()
     applyThreads(threads)
     hud.toast(`Marked ${thread.title.slice(0, 40)} as viewed`)
+  },
+
+  /** Open the selected thread's title for editing — the card does the typing, `renameThread` the keeping. */
+  startRename: () => {
+    if (selectedId) hud.startRename()
+  },
+
+  /**
+   * Give a thread a name of your own. It lives in the colony file, not the harness: the
+   * session keeps whatever title its own app gave it. An empty name, or the harness's own
+   * title typed back in, drops the override so the thread follows the harness again.
+   */
+  renameThread: (id, name) => {
+    const thread = threads.find((t) => t.id === id)
+    if (!thread) return
+    const original = thread.originalTitle ?? thread.title
+    const clean = String(name ?? '').trim().slice(0, 120)
+    const names = { ...(state.names || {}) }
+    if (!clean || clean === original) delete names[id]
+    else names[id] = clean
+    if ((state.names || {})[id] === names[id]) return
+    state.names = names
+    queueSave()
+    applyThreads(threads)
+    hud.toast(names[id] ? `Renamed to ${clean.slice(0, 40)}` : 'Back to its original name')
   },
 
   hideProject: () => {
@@ -301,9 +440,40 @@ const actions = {
     hud.toast(
       folded.length
         ? `Archived — ${folded.join(', ')} ${folded.length === 1 ? 'is' : 'are'} all quiet now, folded off the map`
-        : 'Archived — heading home'
+        : 'Archived — heading home',
+      '',
+      { label: 'Undo', run: () => actions.unarchiveThread(thread.id) }
     )
     colony.ship.ping()
+  },
+
+  /**
+   * Put an archived thread back on the map — from the archive toast's Undo, or the zone's
+   * archived list. It walks back out of the ship, the reverse of how it left.
+   */
+  unarchiveThread: (id) => {
+    const thread = threads.find((t) => t.id === id)
+    if (!thread) return
+    // In place, like `archiveThread`: a save in flight hands back this same object, and a new
+    // one assigned here would be overwritten by it when it lands.
+    Object.assign(state, unarchive(state, thread))
+    restoring.add(id)
+    queueSave()
+    applyThreads(threads)
+    // Back on the books is not always back on the map: a repo you hid stays hidden, and an old
+    // thread's repo can be quiet enough to fold away. Say where it went rather than leave the
+    // toast promising a bot that never walks out.
+    const repo = thread.project
+    const where = (state.hiddenProjects || []).includes(repo)
+      ? `. ${repo} is hidden, so it is with the hidden repos`
+      : new Set(colony.dormantProjects || []).has(repo)
+        ? `. ${repo} is quiet, so it is folded off the map with the quiet repos`
+        : ''
+    const title = thread.title.length > 40 ? `${thread.title.slice(0, 39)}…` : thread.title
+    hud.toast(`Restored — ${title}${where}`)
+    // An archived thread arrives as a stub (see server/lib/page-threads.mjs). It can walk out
+    // on that, but its card fills in from the next scan, so fetch one once the save has landed.
+    setTimeout(poll, 1500)
   },
 
   uiVisibility: (visible) => colony.setUiVisible(visible),
@@ -331,6 +501,40 @@ const hud = new Hud(app, settings, actions)
 
 let lastVoiced = null
 let lastPhrase = 0
+
+/** The crew as the jump keys see them — see game/jumps.js. */
+function jumpCandidates() {
+  return colony.astronauts.agents.filter(onTheMap).map((a) => ({
+    id: a.id,
+    status: a.status,
+    project: a.thread?.project,
+    lastActivityAt: a.thread?.lastActivityAt || 0,
+  }))
+}
+
+/** Not one walking home after an archive — it is leaving the map, not on it. */
+const onTheMap = (agent) => agent.state !== 'leaving' && agent.state !== 'gone'
+
+function projectOrder() {
+  return colony.plotOrder.map((p) => p.id)
+}
+
+/** Still on the surface, and (if asked) still in the state the jump was looking for. */
+function isCandidate(id, qualifies) {
+  const agent = colony.agentFor(id)
+  if (!agent || !onTheMap(agent)) return false
+  return !qualifies || qualifies({ id, status: agent.status, project: agent.thread?.project })
+}
+
+/** Why a scoped jump found nobody — and, when the other side has someone, which key reaches them. */
+function emptyScopeHint(project, outside, qualifies = () => true, what = 'crew') {
+  const nobody = what === 'crew' ? 'No bots' : 'Nobody'
+  const tail = what === 'crew' ? '' : ` ${what}`
+  if (!project) return `${nobody}${tail} anywhere right now`
+  const others = inScope(jumpCandidates().filter(qualifies), project, { outside: !outside }).length
+  const tip = others ? ` — ${others} ${outside ? 'in it, drop' : 'elsewhere, hold'} shift` : ''
+  return `${nobody} ${outside ? 'outside' : 'in'} ${project}${tail}${tip}`
+}
 
 function select(id, { fly = false } = {}) {
   selectedId = id
@@ -456,11 +660,15 @@ function syncProject() {
   // Folded-away repos are listed alongside the ones you hid by hand. Same principle: nothing
   // leaves the map without somewhere on screen saying where it went.
   const folded = hiddenCatalog([...(colony.dormantProjects || [])], threads)
+  // Archives in repos that left the map because nothing else was left in them. Hidden and
+  // dormant repos are off the map for their own reasons, and have their own way back.
+  const elsewhere = new Set([...hidden, ...folded].map((p) => p.name))
+  const offMap = restorableArchives(threads, state, (p) => !colony.plots.has(p) && !elsewhere.has(p))
   const plot = selectedProject ? colony.plots.get(selectedProject) : null
   if (!plot) {
     selectedProject = null
     hud.setProject(null)
-    hud.setLegend(legendProjects, null, hidden, folded)
+    hud.setLegend(legendProjects, null, hidden, folded, offMap)
     return
   }
   const now = Date.now()
@@ -490,11 +698,12 @@ function syncProject() {
     accent: plot.accent,
     path: pathForProject(plot.name),
     threads: list,
+    archived: archivedInProject(threads, state, plot.name),
     selectedId,
   })
   // The legend is the same selection seen from the bottom of the screen: keep it in step
   // here rather than only on the next poll.
-  hud.setLegend(legendProjects, selectedProject, hidden, folded)
+  hud.setLegend(legendProjects, selectedProject, hidden, folded, offMap)
 }
 
 // ── pointer ───────────────────────────────────────────────────────────────────────────
@@ -528,6 +737,11 @@ engine.canvas.addEventListener('pointermove', (e) => {
   // while the world is being dragged would flicker the hover ring across the whole colony.
   if (rig.interacting) {
     engine.canvas.style.cursor = rig._mode === 'orbit' ? 'move' : 'grabbing'
+    return
+  }
+  // A zone or a bot in hand: the hand stays shut, and nothing under it is worth hovering.
+  if (drag.lifted) {
+    engine.canvas.style.cursor = 'grabbing'
     return
   }
   const p = ndc(e)
@@ -580,10 +794,12 @@ const GHOST_INVALID_RIM = 0xffcfcf
 const drag = {
   timer: 0, // pending long-press
   candidate: null, // repo name under the pressed pointer
+  candidateAgent: null, // the bot under the pressed pointer, if that is what was pressed
   startX: 0,
   startY: 0,
   lifted: false,
   name: null,
+  agent: null, // the bot in hand, when it is a bot rather than a zone that was lifted
   cells: null, // the zone's footprint at lift, root first
   grab: null, // which lattice cell the press landed on — the drag is relative to it
   dq: 0,
@@ -702,6 +918,47 @@ function cancelHold() {
   clearTimeout(drag.timer)
   drag.timer = 0
   drag.candidate = null
+  drag.candidateAgent = null
+}
+
+/** The hold has run out: whatever the press landed on — a bot or a zone — picks up. */
+function liftPressed() {
+  if (drag.candidateAgent) liftAgent()
+  else liftPlot()
+}
+
+/**
+ * A bot in hand. Same hold, same swallowed click, same escape hatches as a zone; the
+ * difference is what putting it down means. A zone's drop is a layout change, but a bot
+ * has no say in where it lives, so letting go simply sends it home — see `carry.js`.
+ */
+function liftAgent() {
+  drag.timer = 0
+  const agent = drag.candidateAgent
+  drag.candidate = null
+  drag.candidateAgent = null
+  if (!colony.astronauts.grab(agent)) return // it set off for the ship, or went in, during the hold
+  drag.lifted = true
+  drag.agent = agent
+  rig.suppressed = true
+  engine.canvas.style.cursor = 'grabbing'
+}
+
+/** Follow the pointer along the ground; a bot that has left the roster mid-carry ends the drag. */
+function carryAgent(e) {
+  if (drag.agent.state !== 'held') return endAgentDrag()
+  if (!rig.groundPoint(e.clientX, e.clientY, dragGround)) return
+  colony.astronauts.carry(drag.agent, dragGround.x, dragGround.z)
+}
+
+function endAgentDrag() {
+  colony.astronauts.release(drag.agent)
+  const pending = drag.pendingThreads
+  drag.lifted = false
+  drag.agent = null
+  drag.pendingThreads = null
+  if (pending) applyThreads(pending)
+  engine.canvas.style.cursor = 'grab'
 }
 
 function liftPlot() {
@@ -737,6 +994,7 @@ function liftPlot() {
  * layout diff writes the move to the colony file.
  */
 function settleDrag(apply) {
+  if (drag.agent) return endAgentDrag()
   colony.setPlotLift(drag.name, 0)
   disposeGhost()
   if (apply && drag.plan) colony.applyLayout(drag.plan)
@@ -762,13 +1020,19 @@ engine.canvas.addEventListener('pointerdown', (e) => {
   // The camera reads these modifiers as "tilt and rotate" — that press is never a lift.
   if (e.button !== 0 || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
   const p = ndc(e)
-  if (colony.pick(p.x, p.y, p.aspect)) return // a press on an astronaut is a selection
-  const plot = plotUnder(e, p)
-  if (!plot) return
-  drag.candidate = plot.name
+  const agent = colony.pick(p.x, p.y, p.aspect)
+  if (agent) {
+    // Held, it picks up; let go early and it was a selection all along.
+    if (!canGrab(agent)) return
+    drag.candidateAgent = agent
+  } else {
+    const plot = plotUnder(e, p)
+    if (!plot) return
+    drag.candidate = plot.name
+  }
   drag.startX = e.clientX
   drag.startY = e.clientY
-  drag.timer = setTimeout(liftPlot, HOLD_MS)
+  drag.timer = setTimeout(liftPressed, HOLD_MS)
 })
 
 // On window, like the camera's own listeners: a carry does not end at the canvas edge.
@@ -776,6 +1040,7 @@ window.addEventListener('pointermove', (e) => {
   // The same 6px the camera's `wasClick` uses: past it this press was a pan all along.
   if (drag.timer && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 6) cancelHold()
   if (!drag.lifted) return
+  if (drag.agent) return carryAgent(e)
   if (!rig.groundPoint(e.clientX, e.clientY, dragGround)) return
   const cell = worldToHex(dragGround.x, dragGround.z)
   const dq = cell.q - drag.grab.q
@@ -805,11 +1070,11 @@ window.addEventListener('pointercancel', () => {
 })
 
 // Pressing on an astronaut used to suppress the camera, on the theory that grabbing one
-// should not also drag the world out from under it. But nothing is draggable *about* an
-// astronaut — a press is only ever the start of a selection or the start of a pan — so all
+// should not also drag the world out from under it. But a press that moves is a pan, so all
 // that suppression did was make the ground refuse to move whenever a drag happened to begin
-// on top of somebody. Selection is decided on release instead, where `wasClick` already
-// distinguishes a click from a drag.
+// on top of somebody. Only holding still lifts one (`liftAgent`), and only then is the camera
+// suppressed. Selection is decided on release, where `wasClick` already distinguishes a click
+// from a drag.
 engine.canvas.addEventListener('pointerup', (e) => {
   // A release that ends a lift is the end of a carry, not a click — even an unmoved one:
   // long-pressing a plot and thinking better of it should not also open its sidebar.
@@ -867,7 +1132,7 @@ window.addEventListener('keydown', (e) => {
       break
     case 'n':
     case 'N':
-      actions.focusStatus('waiting')
+      actions.focusNeedsYou({ outside: e.shiftKey })
       break
     case 'p':
     case 'P':
@@ -886,9 +1151,28 @@ window.addEventListener('keydown', (e) => {
       settings.set('sound', !settings.get('sound'))
       hud.hint(settings.get('sound') ? 'Sound on' : 'Muted')
       break
+    // N, J and B share one rule: plain stays inside the open zone, shift goes outside it.
+    case 'j':
+    case 'J':
+      actions.focusAgent({ outside: e.shiftKey })
+      break
+    case '/':
+    case 'f':
+    case 'F':
+      e.preventDefault()
+      actions.openSearch()
+      break
+    case 'k':
+    case 'K':
+      actions.cycleProject()
+      break
+    case 'b':
+    case 'B':
+      actions.focusBusiest({ outside: e.shiftKey })
+      break
     case 'Tab':
       e.preventDefault()
-      actions.cyclePlanet()
+      actions.cyclePlanet({ back: e.shiftKey })
       break
     case '0':
       actions.resetView()
@@ -904,6 +1188,14 @@ window.addEventListener('keydown', (e) => {
     case 'v':
     case 'V':
       if (selectedId) actions.markViewed()
+      break
+    case 'r':
+    case 'R':
+      // Held back so the keystroke that opens the field does not also type an "r" into it.
+      if (selectedId) {
+        e.preventDefault()
+        actions.startRename()
+      }
       break
     case 'c':
     case 'C':
@@ -939,6 +1231,7 @@ window.addEventListener('keydown', (e) => {
       break
     // One step at a time, outward: the drag in hand, the thread, then the power panel, then the zone it belongs to.
     case 'Escape':
+      if (hud.closeSearch()) break
       if (drag.lifted || drag.timer) {
         cancelHold()
         if (drag.lifted) {
@@ -969,13 +1262,25 @@ function applyThreads(list) {
 
   // A thread you have said you looked at stops counting as unread until it moves on again.
   // Done here rather than in `statusFor` so the card, the badge and the astronaut all agree.
+  //
+  // Names you gave threads go on here too, for the same reason. `originalTitle` keeps the
+  // harness's own, since this also runs on the already-renamed list after a local change.
   const viewed = state.viewedAt || {}
+  const names = state.names || {}
+  const archivedSet = new Set(state.archived)
   threads = list.map((t) => {
+    t = withLocalArchive(t, archivedSet)
     const at = viewed[t.id]
-    return at && t.lastActivityAt <= at ? { ...t, unread: false } : t
+    if (at && t.lastActivityAt <= at) t = { ...t, unread: false }
+    const original = t.originalTitle ?? t.title
+    if (names[t.id]) return { ...t, title: names[t.id], originalTitle: original }
+    if (t.originalTitle !== undefined) {
+      const { originalTitle, ...rest } = t
+      return { ...rest, title: original }
+    }
+    return t
   })
   list = threads
-  const archivedSet = new Set(state.archived)
   const hiddenSet = new Set(state.hiddenProjects || [])
 
   // Which threads the colony has met before. Walking out of the ship is meant to *mean*
@@ -990,6 +1295,9 @@ function applyThreads(list) {
     firstSeen = true
   }
   if (firstSeen) queueSave()
+  // Restored threads walk back out of the ship rather than appearing where they stood.
+  for (const id of restoring) known.delete(id)
+  restoring.clear()
 
   const stats = colony.setThreads(list, archivedSet, hiddenSet, known)
   hud.setStats(stats)
@@ -1186,7 +1494,9 @@ settings.onChange((changed, scope) => {
 
 engine.add({
   update(dt, elapsed) {
-    rig.setFollow(settings.get('followSelected') ? colony.agentFor(selectedId) : null)
+    // Not while a bot is carried: following it moves the ground under the cursor by every step
+    // it takes, so it chases a point that keeps moving away and the map runs off with it.
+    rig.setFollow(settings.get('followSelected') && !drag.agent ? colony.agentFor(selectedId) : null)
     rig.update(dt)
     // The world bends away from wherever the camera is looking, every frame, before the
     // colony projects anything to the screen.

@@ -106,6 +106,11 @@ loose is slid back into contact, each stranded group moving as one body so an ar
 by hand is not reshuffled around you. Two things are still refused: a drop that lands nowhere near
 the colony, and one that would leave the zone holding a corner of the map on its own.
 
+**So can a bot.** Press and hold one — a session's bot or an errand's — and it dangles from the
+cursor; let go anywhere and it walks back to its own site. Put it far away and it runs: the longer
+the way home, the faster it goes. A bot has no say in where it lives, so dropping one never
+rearranges anything.
+
 The version before this was a pure function of the thread counts: one session appearing
 anywhere changed the sort order, the order decided the tiles, and the whole colony re-laid
 itself out. A zone you were watching could jump to the far side of the map because a
@@ -227,7 +232,9 @@ for good if you would rather the view stayed put.
 - **Archive** retires the thread *here*: the bot walks back up the ramp and boards the
   ship. Nothing is written to the harness — see [Keeping it local](#keeping-it-local). A thread
   you archive in the harness's own app goes home on the next poll too, because the scan reads
-  that flag.
+  that flag. Changed your mind? The toast offers Undo for a few seconds, and each zone keeps a
+  folded list of what was archived here, with Restore on every thread. One archived in the
+  harness's own app is restored there.
 - **Hide** takes a whole repo off the map without touching a single thread. It comes back from
   the list at the foot of the sidebar, onto the same ground it left.
 
@@ -284,6 +291,7 @@ Navigation is Google Earth's, including both of the things that make Earth feel 
 | | |
 | --- | --- |
 | **Drag** | Grabs the ground. The point under your cursor stays pinned there for the whole drag |
+| **Press and hold** a bot or a zone | Picks it up; a bot walks (or runs) home when you let go, a zone stays where you drop it |
 | **Right-drag** (or ⌃ / ⇧ / middle-drag) | Tilt and rotate. Up tilts toward the horizon |
 | **Scroll** | Zooms **at the cursor**, not at the screen centre |
 | **Two fingers** | Pinch to zoom, drag to pan — both anchored between your fingers |
@@ -305,18 +313,28 @@ under **View → Return to isometric**.
 | --- | --- |
 | `H` / `⌘\` | **Hide every panel.** The colony still reads: status lives above the bots' heads |
 | `S` | Settings |
-| `N` | Fly to the next bot waiting on you |
+| `N` | Fly to the next bot waiting on you — errors first, then replies, longest-waiting first |
+| `J` | Next bot |
+| `K` | Next zone |
+| `B` | Busiest bot that is building or stuck on you, then the next busiest on each press. Idle and sleeping bots are skipped |
+| `/` / `F` | Find a thread in the open zone by its title or worktree |
+| `R` | Rename the selected bot. The name lives only in this colony; the harness keeps its own |
 | `Enter` / `A` | Open / archive the selected thread |
 | `V` | Mark the selected thread viewed, so it stops asking |
 | `C` | New conversation in the open zone's folder |
 | `O` | Orbit mode |
-| `Tab` | Next planet |
+| `Tab` / `⇧Tab` | Next / previous planet |
 | `L` | Next time of day |
 | `M` | Mute |
 | `P` | Screenshot |
 | `0` | Reset the view |
 | `Esc` | Deselect, and close the zone sidebar |
 | `?` | Help |
+
+`N`, `J` and `B` stay inside the open zone; hold shift to look everywhere *else* instead.
+With no zone open, all three mean the whole colony. Repeated `N` or `B` presses walk the ranking
+as it stood on the first press, so bots do not get skipped or revisited as activity shifts;
+click somebody or change zone and the next press starts from the top again.
 
 ## Planets and light
 
